@@ -14,7 +14,7 @@ class Config:
     def __init__(self):
         # Base directories
         self.BASE_DIR = Path(__file__).parent.parent
-        self.RAW_DATA_FOLDER = self.BASE_DIR / "data" / "raw_data_airbnb_insights"
+        self.RAW_DATA_FOLDER = Path(r"D:\Projects\Web-scraping-and-dataset-download---Airbnb-Insights\data\airbnb_insights_data")
         self.CLEANED_DATA_FOLDER = self.BASE_DIR / "data" / "cleaned_data"
         self.SQL_DIR = self.BASE_DIR / "sql"
         self.MODULES_DIR = self.BASE_DIR / "modules"
