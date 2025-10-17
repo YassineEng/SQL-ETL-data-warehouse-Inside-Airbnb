@@ -120,9 +120,8 @@ CREATE TABLE fact_reviews (
     date_id INT,
     reviewer_id BIGINT,
     reviewer_name NVARCHAR(255),
-    comments TEXT,
+    comments NVARCHAR(MAX),
     FOREIGN KEY (listing_id) REFERENCES dim_listings(listing_id),
     FOREIGN KEY (date_id) REFERENCES dim_dates(date_id)
 );
 
-PRINT '✅ All tables created successfully';

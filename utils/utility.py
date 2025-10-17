@@ -9,7 +9,9 @@ import pandas as pd
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 import glob
+from utils.logger import get_logger
 
+logger = get_logger(__name__)
 
 class DataValidationError(Exception):
     """Custom exception for data validation errors"""
@@ -90,7 +92,7 @@ def find_files_by_pattern(pattern: str) -> List[str]:
     try:
         return glob.glob(pattern)
     except Exception as e:
-        print(f"Error searching for pattern {pattern}: {e}")
+        logger.error(f"Error searching for pattern {pattern}: {e}", exc_info=True)
         return []
 
 
@@ -158,7 +160,7 @@ def validate_directory(path: str, create_if_missing: bool = True) -> bool:
         if not os.path.exists(path):
             if create_if_missing:
                 os.makedirs(path, exist_ok=True)
-                print(f"✅ Created directory: {path}")
+                logger.info(f"✅ Created directory: {path}")
             else:
                 return False
         
@@ -170,7 +172,7 @@ def validate_directory(path: str, create_if_missing: bool = True) -> bool:
         
         return True
     except Exception as e:
-        print(f"❌ Directory validation failed for {path}: {e}")
+        logger.error(f"❌ Directory validation failed for {path}: {e}", exc_info=True)
         return False
 
 

@@ -14,5 +14,3 @@ SELECT
     COUNT(*) as total_listings
 FROM dim_listings
 GROUP BY host_id, host_name, host_city, host_country;
-
-PRINT '✅ Hosts data loaded successfully';

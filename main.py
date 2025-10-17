@@ -17,7 +17,9 @@ from config.database_config import DatabaseConfig  # ← Add this import
 from modules.data_analyzer import AirbnbDataAnalyzer
 from modules.data_cleaner import AirbnbDataCleaner
 from modules.data_loader import AirbnbDataLoader
-from utils.logger import setup_logging
+from utils.logger import setup_logging, get_logger
+
+logger = get_logger(__name__)
 from utils.utility import validate_directory, create_timestamp
 
 def main():
@@ -38,18 +40,20 @@ def main():
         print(f"💡 Please ensure your raw CSV files are in: {config.RAW_DATA_FOLDER}")
         return
     
-    print("🏠 Airbnb Data Warehouse ETL Pipeline")
-    print(f"📅 Started at: {create_timestamp()}")
-    print("=" * 50)
+    logger.info("🏠 Airbnb Data Warehouse ETL Pipeline")
+    logger.info(f"📅 Started at: {create_timestamp()}")
+    logger.info("=" * 50)
     
+    db_config = DatabaseConfig(config)
+
     while True:
-        print("\n📊 ETL Pipeline Options:")
-        print("1. 🔍 Run EDA Analysis (Extract & Analyze) - Uses RAW data")
-        print("2. 🧹 Run Data Cleaning (Transform) - RAW → Cleaned data") 
-        print("3. 📥 Run SQL Server Data Loading (Load to Database) - Uses CLEANED data")
-        print("4. 🔄 Run Complete ETL Pipeline")
-        print("5. 🗃️  Database Management")
-        print("6. 🚪 Exit")
+        logger.info("\n📊 ETL Pipeline Options:")
+        logger.info("1. 🔍 Run EDA Analysis (Extract & Analyze) - Uses RAW data")
+        logger.info("2. 🧹 Run Data Cleaning (Transform) - RAW → Cleaned data") 
+        logger.info("3. 📥 Run SQL Server Data Loading (Load to Database) - Uses CLEANED data")
+        logger.info("4. 🔄 Run Complete ETL Pipeline")
+        logger.info("5. 🗃️  Database Management")
+        logger.info("6. 🚪 Exit")
         
         choice = input("\nEnter your choice (1-6): ").strip()
         
@@ -58,28 +62,28 @@ def main():
         elif choice == '2':
             run_data_cleaning(config)
         elif choice == '3':
-            run_sql_data_loading(config)
+            run_sql_data_loading(config, db_config)
         elif choice == '4':
-            run_complete_etl(config)
+            run_complete_etl(config, db_config)
         elif choice == '5':
-            run_database_management(config)
+            run_database_management(config, db_config)
         elif choice == '6':
-            print("👋 Exiting ETL Pipeline. Goodbye!")
+            logger.info("👋 Exiting ETL Pipeline. Goodbye!")
             break
         else:
-            print("❌ Invalid choice. Please enter 1-6.")
+            logger.warning("❌ Invalid choice. Please enter 1-6.")
 
 def run_eda_analysis(config: Config):
     """Run Exploratory Data Analysis on raw data"""
-    print("\n" + "="*60)
-    print("🔍 STARTING EDA ANALYSIS (RAW DATA)")
-    print("="*60)
+    logger.info("\n" + "="*60)
+    logger.info("🔍 STARTING EDA ANALYSIS (RAW DATA)")
+    logger.info("="*60)
     
     # Check for raw data files
     raw_files = config.get_data_files()
     if not raw_files:
-        print("❌ No raw data files found!")
-        print(f"💡 Please ensure your raw CSV files are in: {config.RAW_DATA_FOLDER}")
+        logger.error("❌ No raw data files found!")
+        logger.info(f"💡 Please ensure your raw CSV files are in: {config.RAW_DATA_FOLDER}")
         return
     
     analyzer = AirbnbDataAnalyzer(config)
@@ -87,15 +91,15 @@ def run_eda_analysis(config: Config):
 
 def run_data_cleaning(config: Config):
     """Run data cleaning and transformation"""
-    print("\n" + "="*60)
-    print("🧹 STARTING DATA CLEANING & TRANSFORMATION")
-    print("="*60)
+    logger.info("\n" + "="*60)
+    logger.info("🧹 STARTING DATA CLEANING & TRANSFORMATION")
+    logger.info("="*60)
     
     # Check for raw data files
     raw_files = config.get_data_files()
     if not raw_files:
-        print("❌ No raw data files found!")
-        print(f"💡 Please ensure your raw CSV files are in: {config.RAW_DATA_FOLDER}")
+        logger.error("❌ No raw data files found!")
+        logger.info(f"💡 Please ensure your raw CSV files are in: {config.RAW_DATA_FOLDER}")
         return
     
     cleaner = AirbnbDataCleaner(config)
@@ -104,33 +108,30 @@ def run_data_cleaning(config: Config):
     response = input("\n🧹 Do you want to create cleaned datasets? (y/n): ")
     if response.lower() == 'y':
         cleaner.create_cleaned_dataset()
-        print("\n✅ Data cleaning completed!")
+        logger.info("\n✅ Data cleaning completed!")
 
-def run_sql_data_loading(config: Config):
+def run_sql_data_loading(config: Config, db_config: DatabaseConfig):
     """Load cleaned data into SQL Server data warehouse"""
-    print("\n" + "="*60)
-    print("📥 STARTING SQL SERVER DATA LOADING")
-    print("="*60)
+    logger.info("\n" + "="*60)
+    logger.info("📥 STARTING SQL SERVER DATA LOADING")
+    logger.info("="*60)
     
     # Check if cleaned data exists
     cleaned_files = config.get_cleaned_data_files()
     if not cleaned_files:
-        print("❌ No cleaned data files found!")
-        print("💡 Please run data cleaning first (Option 2)")
-        return
-    
-    loader = AirbnbDataLoader(config)
+        logger.error("❌ No cleaned data files found!")
+    loader = AirbnbDataLoader(config, db_config)
 
-    print('\nWhich load phase do you want to run?')
-    print('1. Listings')
-    print('2. Calendar')
-    print('3. Reviews')
-    print('4. All (Listings -> Calendar -> Reviews)')
-    print('5. Exit (return to main menu)')
+    logger.info('\nWhich load phase do you want to run?')
+    logger.info('1. Listings')
+    logger.info('2. Calendar')
+    logger.info('3. Reviews')
+    logger.info('4. All (Listings -> Calendar -> Reviews)')
+    logger.info('5. Exit (return to main menu)')
     phase = input('Enter 1-5: ').strip()
 
     if phase == '1':
-        conn = loader.db_config.create_connection(database='AirbnbDataWarehouse')
+        conn = db_config.create_connection(database=config.SQL_DATABASE)
         try:
             listings = glob.glob(os.path.join(config.CLEANED_DATA_FOLDER, '*listings*.csv.gz'))
             for f in listings:
@@ -138,13 +139,13 @@ def run_sql_data_loading(config: Config):
         finally:
             conn.close()
     elif phase == '2':
-        conn = loader.db_config.create_connection(database='AirbnbDataWarehouse')
+        conn = db_config.create_connection(database=config.SQL_DATABASE)
         try:
-            print("   Clearing existing data from fact_calendar...")
+            logger.info("   Clearing existing data from fact_calendar...")
             cursor = conn.cursor()
             cursor.execute("TRUNCATE TABLE fact_calendar;")
             conn.commit()
-            print("   ✅ fact_calendar cleared successfully.")
+            logger.info("   ✅ fact_calendar cleared successfully.")
 
             calendars = glob.glob(os.path.join(config.CLEANED_DATA_FOLDER, '*calendar*.csv.gz'))
             for f in calendars:
@@ -152,13 +153,13 @@ def run_sql_data_loading(config: Config):
         finally:
             conn.close()
     elif phase == '3':
-        conn = loader.db_config.create_connection(database='AirbnbDataWarehouse')
+        conn = db_config.create_connection(database=config.SQL_DATABASE)
         try:
-            print("   Clearing existing data from fact_reviews...")
+            logger.info("   Clearing existing data from fact_reviews...")
             cursor = conn.cursor()
             cursor.execute("TRUNCATE TABLE fact_reviews;")
             conn.commit()
-            print("   ✅ fact_reviews cleared successfully.")
+            logger.info("   ✅ fact_reviews cleared successfully.")
 
             reviews = glob.glob(os.path.join(config.CLEANED_DATA_FOLDER, '*reviews*.csv.gz'))
             for f in reviews:
@@ -168,96 +169,93 @@ def run_sql_data_loading(config: Config):
     elif phase == '4':
         loader.load_to_warehouse()
     elif phase == '5':
-        print('↩️  Returning to main menu without running SQL load')
+        logger.info('↩️  Returning to main menu without running SQL load')
         return
     else:
-        print('Invalid choice, aborting SQL load')
+        logger.warning('Invalid choice, aborting SQL load')
 
-def run_complete_etl(config: Config):
+def run_complete_etl(config: Config, db_config: DatabaseConfig):
     """Run the complete ETL pipeline"""
-    print("\n" + "="*60)
-    print("🔄 STARTING COMPLETE ETL PIPELINE")
-    print("="*60)
+    logger.info("\n" + "="*60)
+    logger.info("🔄 STARTING COMPLETE ETL PIPELINE")
+    logger.info("="*60)
     
     # Extract & Analyze
-    print("\n📊 STEP 1: EDA ANALYSIS (RAW DATA)")
+    logger.info("\n📊 STEP 1: EDA ANALYSIS (RAW DATA)")
     raw_files = config.get_data_files()
     if not raw_files:
-        print("❌ No raw data files found!")
+        logger.error("❌ No raw data files found!")
         return
     
     analyzer = AirbnbDataAnalyzer(config)
     analyzer.analyze_all_files()
     
     # Transform
-    print("\n🔄 STEP 2: DATA CLEANING & TRANSFORMATION")
+    logger.info("\n🔄 STEP 2: DATA CLEANING & TRANSFORMATION")
     cleaner = AirbnbDataCleaner(config)
     cleaner.create_cleaned_dataset()
     
     # Load to SQL Server
-    print("\n📥 STEP 3: SQL SERVER DATA LOADING (CLEANED DATA)")
+    logger.info("\n📥 STEP 3: SQL SERVER DATA LOADING (CLEANED DATA)")
     
     # Check if cleaned data exists and update SQL scripts
     cleaned_files = config.get_cleaned_data_files()
     if not cleaned_files:
-        print("❌ No cleaned data files found after cleaning step!")
+        logger.error("❌ No cleaned data files found after cleaning step!")
         return
     
-    loader = AirbnbDataLoader(config)
+    loader = AirbnbDataLoader(config, db_config)
     loader.load_to_warehouse()
     
-    print("\n✅ ETL PIPELINE COMPLETED SUCCESSFULLY!")
+    logger.info("\n✅ ETL PIPELINE COMPLETED SUCCESSFULLY!")
 
-def run_database_management(config: Config):
+def run_database_management(config: Config, db_config: DatabaseConfig):
     """Database management operations"""
-    print("\n" + "="*60)
-    print("🗃️  DATABASE MANAGEMENT")
-    print("="*60)
+    logger.info("\n" + "="*60)
+    logger.info("🗃️  DATABASE MANAGEMENT")
+    logger.info("="*60)
     
-    # Remove the import from here since it's now at the top
-    db_config = DatabaseConfig()
-    
-    print("\n📊 Database Operations:")
-    print("1. 🔍 Test Database Connection")
-    print("2. 📋 Check Database Status")
-    print("3. 🗑️  Reset Database (Drop & Recreate)")
-    print("4. 📈 View Database Statistics")
-    print("5. ↩️  Back to Main Menu")
+    logger.info("\n📊 Database Operations:")
+    logger.info("1. 🔍 Test Database Connection")
+    logger.info("2. 📋 Check Database Status")
+    logger.info("3. 🗑️  Reset Database (Drop & Recreate)")
+    logger.info("4. 📈 View Database Statistics")
+    logger.info("5. ↩️  Back to Main Menu")
     
     choice = input("\nEnter your choice (1-5): ").strip()
     
     if choice == '1':
         test_database_connection(db_config)
     elif choice == '2':
-        check_database_status(db_config)
+        check_database_status(db_config, config)
     elif choice == '3':
-        reset_database(db_config)
+        reset_database(db_config, config)
     elif choice == '4':
-        view_database_stats(db_config)
+        view_database_stats(db_config, config)
     elif choice == '5':
         return
     else:
-        print("❌ Invalid choice.")
+        logger.warning("❌ Invalid choice.")
 
 def test_database_connection(db_config: DatabaseConfig):
     """Test SQL Server connection"""
-    print("\n🔌 Testing Database Connection...")
+    logger.info("\n🔌 Testing Database Connection...")
     if db_config.test_connection():
-        print("✅ Database connection successful!")
+        logger.info("✅ Database connection successful!")
     else:
-        print("❌ Database connection failed!")
-        print("\n🔧 Troubleshooting tips:")
-        print("• Ensure SQL Server Express is running")
-        print("• Verify ODBC Driver 17 is installed")
-        print("• Check if the server name is correct")
-        print("• Ensure Windows Authentication is enabled")
+        logger.error("❌ Database connection failed!")
+        logger.info("\n🔧 Troubleshooting tips:")
+        logger.info("• Ensure SQL Server Express is running")
+        logger.info("• Verify ODBC Driver 17 is installed")
+        logger.info("• Check if the server name is correct")
+        logger.info("• Ensure Windows Authentication is enabled")
 
-def check_database_status(db_config: DatabaseConfig):
+def check_database_status(db_config: DatabaseConfig, config: Config):
     """Check if data warehouse database exists and its status"""
-    print("\n📋 Checking Database Status...")
+    logger.info("\n📋 Checking Database Status...")
     
     if not db_config.test_connection():
-        print("❌ Cannot connect to SQL Server")
+        logger.error("❌ Cannot connect to SQL Server")
         return
     
     try:
@@ -265,14 +263,14 @@ def check_database_status(db_config: DatabaseConfig):
         cursor = conn.cursor()
         
         # Check if database exists
-        cursor.execute("SELECT name, state_desc FROM sys.databases WHERE name = 'AirbnbDataWarehouse'")
+        cursor.execute(f"SELECT name, state_desc FROM sys.databases WHERE name = '{config.SQL_DATABASE}'")
         db_info = cursor.fetchone()
         
         if db_info:
-            print(f"✅ Database '{db_info[0]}' exists - Status: {db_info[1]}")
+            logger.info(f"✅ Database '{db_info[0]}' exists - Status: {db_info[1]}")
             
             # Check tables
-            conn_airbnb = db_config.create_connection('AirbnbDataWarehouse')
+            conn_airbnb = db_config.create_connection(config.SQL_DATABASE)
             cursor_airbnb = conn_airbnb.cursor()
             
             cursor_airbnb.execute("""
@@ -285,30 +283,30 @@ def check_database_status(db_config: DatabaseConfig):
             """)
             tables = cursor_airbnb.fetchall()
             
-            print(f"\n📊 Tables in database: {len(tables)}")
+            logger.info(f"\n📊 Tables in database: {len(tables)}")
             for table in tables:
                 cursor_airbnb.execute(f"SELECT COUNT(*) FROM {table[0]}")
                 count = cursor_airbnb.fetchone()[0]
-                print(f"   • {table[0]}: {count:,} records")
+                logger.info(f"   • {table[0]}: {count:,} records")
             
             conn_airbnb.close()
         else:
-            print("❌ Database 'AirbnbDataWarehouse' does not exist")
-            print("💡 Run 'SQL Server Data Loading' to create it")
+            logger.warning(f"❌ Database '{config.SQL_DATABASE}' does not exist")
+            logger.info("💡 Run 'SQL Server Data Loading' to create it")
         
         conn.close()
         
     except Exception as e:
-        print(f"❌ Error checking database status: {e}")
+        logger.error(f"❌ Error checking database status: {e}")
 
-def reset_database(db_config: DatabaseConfig):
+def reset_database(db_config: DatabaseConfig, config: Config):
     """Reset the entire database"""
-    print("\n⚠️  RESET DATABASE")
-    print("This will DROP and RECREATE the entire AirbnbDataWarehouse!")
+    logger.warning("\n⚠️  RESET DATABASE")
+    logger.warning(f"This will DROP and RECREATE the entire {config.SQL_DATABASE}!")
     
     confirmation = input("Type 'YES' to confirm: ").strip()
     if confirmation != 'YES':
-        print("❌ Reset cancelled")
+        logger.info("❌ Reset cancelled")
         return
     
     try:
@@ -324,11 +322,11 @@ def reset_database(db_config: DatabaseConfig):
 
         # Execute drop if exists
         try:
-            cursor.execute("""
-                IF EXISTS (SELECT name FROM sys.databases WHERE name = 'AirbnbDataWarehouse')
+            cursor.execute(f"""
+                IF EXISTS (SELECT name FROM sys.databases WHERE name = '{config.SQL_DATABASE}')
                 BEGIN
-                    ALTER DATABASE AirbnbDataWarehouse SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
-                    DROP DATABASE AirbnbDataWarehouse;
+                    ALTER DATABASE {config.SQL_DATABASE} SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+                    DROP DATABASE {config.SQL_DATABASE};
                     PRINT '✅ Database dropped successfully';
                 END
                 ELSE
@@ -337,7 +335,7 @@ def reset_database(db_config: DatabaseConfig):
                 END
             """)
         except Exception as inner_e:
-            print(f"❌ Error executing DROP/ALTER statements: {inner_e}")
+            logger.error(f"❌ Error executing DROP/ALTER statements: {inner_e}")
             try:
                 conn.close()
             except Exception:
@@ -352,33 +350,33 @@ def reset_database(db_config: DatabaseConfig):
         # Recreate database using DatabaseConfig helper (it sets autocommit internally)
         try:
             db_config.create_database()
-            print("✅ Database reset completed! Database recreated.")
+            logger.info("✅ Database reset completed! Database recreated.")
             
             # Re-apply the schema
-            print("Applying schema to the new database...")
-            conn_airbnb = db_config.create_connection('AirbnbDataWarehouse')
-            loader = AirbnbDataLoader(Config())
+            logger.info("Applying schema to the new database...")
+            conn_airbnb = db_config.create_connection(config.SQL_DATABASE)
+            loader = AirbnbDataLoader(config, db_config)
             loader._execute_schema_scripts(conn_airbnb)
             conn_airbnb.close()
-            print("✅ Schema applied successfully.")
+            logger.info("✅ Schema applied successfully.")
 
         except Exception as e:
-            print(f"❌ Error recreating database or applying schema: {e}")
-            print("💡 The database was dropped; please recreate it manually or retry the reset.")
+            logger.error(f"❌ Error recreating database or applying schema: {e}")
+            logger.info("💡 The database was dropped; please recreate it manually or retry the reset.")
 
     except Exception as e:
-        print(f"❌ Error resetting database: {e}")
+        logger.error(f"❌ Error resetting database: {e}")
 
-def view_database_stats(db_config: DatabaseConfig):
+def view_database_stats(db_config: DatabaseConfig, config: Config):
     """View database statistics and sizes"""
-    print("\n📈 Database Statistics")
+    logger.info("\n📈 Database Statistics")
     
     if not db_config.database_exists():
-        print("❌ Database 'AirbnbDataWarehouse' does not exist")
+        logger.warning(f"❌ Database '{config.SQL_DATABASE}' does not exist")
         return
     
     try:
-        conn = db_config.create_connection('AirbnbDataWarehouse')
+        conn = db_config.create_connection(config.SQL_DATABASE)
         cursor = conn.cursor()
         
         # Database size
@@ -390,10 +388,10 @@ def view_database_stats(db_config: DatabaseConfig):
             WHERE type = 0  -- ROWS data files only
         """)
         db_size = cursor.fetchone()
-        print(f"💾 Database Size: {db_size[1]:.2f} MB")
+        logger.info(f"💾 Database Size: {db_size[1]:.2f} MB")
         
         # Table row counts
-        print("\n📊 Table Statistics:")
+        logger.info("\n📊 Table Statistics:")
         cursor.execute("""
             SELECT 
                 t.name AS TableName,
@@ -410,12 +408,12 @@ def view_database_stats(db_config: DatabaseConfig):
         
         tables = cursor.fetchall()
         for table in tables:
-            print(f"   • {table[0]}: {table[1]:,} rows ({table[2]/1024:.1f} MB)")
+            logger.info(f"   • {table[0]}: {table[1]:,} rows ({table[2]/1024:.1f} MB)")
         
         conn.close()
         
     except Exception as e:
-        print(f"❌ Error viewing database stats: {e}")
+        logger.error(f"❌ Error viewing database stats: {e}")
 
 if __name__ == "__main__":
     main()

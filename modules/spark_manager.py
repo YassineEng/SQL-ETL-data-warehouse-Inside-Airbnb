@@ -6,6 +6,9 @@ Handles Spark session creation and configuration
 
 from pyspark.sql import SparkSession
 from config.settings import Config
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class SparkSessionManager:
@@ -44,11 +47,11 @@ class SparkSessionManager:
             # Set log level to WARN to reduce verbosity
             self.spark.sparkContext.setLogLevel("WARN")
             
-            print("✅ Spark session started successfully")
+            logger.info("✅ Spark session started successfully")
             return self.spark
             
         except Exception as e:
-            print(f"❌ Failed to start Spark session: {e}")
+            logger.error(f"❌ Failed to start Spark session: {e}", exc_info=True)
             raise
     
     def stop_session(self):
@@ -56,7 +59,7 @@ class SparkSessionManager:
         if self.spark is not None:
             self.spark.stop()
             self.spark = None
-            print("✅ Spark session stopped")
+            logger.info("✅ Spark session stopped")
     
     def get_session(self) -> SparkSession:
         """

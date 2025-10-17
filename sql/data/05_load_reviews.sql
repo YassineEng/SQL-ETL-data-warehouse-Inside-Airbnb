@@ -53,4 +53,3 @@ DROP TABLE #temp_reviews;
 -- Re-enable foreign key constraints
 ALTER TABLE fact_reviews WITH CHECK CHECK CONSTRAINT ALL;
 
-PRINT '✅ Reviews data loaded successfully';

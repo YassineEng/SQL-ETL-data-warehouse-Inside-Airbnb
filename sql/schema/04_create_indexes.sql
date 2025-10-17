@@ -16,4 +16,3 @@ CREATE INDEX IX_fact_reviews_reviewer ON fact_reviews(reviewer_id);
 CREATE INDEX IX_dim_dates_date ON dim_dates(full_date);
 CREATE INDEX IX_dim_dates_year_month ON dim_dates(year, month);
 
-PRINT 'âœ… Performance indexes created successfully';

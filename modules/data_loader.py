@@ -20,6 +20,7 @@ import glob
 import gzip
 import tempfile
 from typing import Optional
+import shutil
 
 import pandas as pd
 import pyodbc
@@ -27,29 +28,32 @@ import pyodbc
 from config.database_config import DatabaseConfig
 from config.settings import Config
 from modules.data_validator import DataValidator
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class AirbnbDataLoader:
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, db_config: DatabaseConfig):
         self.config = config
-        self.db_config = DatabaseConfig()
+        self.db_config = db_config
         self.data_validator = DataValidator()
         self.consecutive_errors = 0
 
     def load_to_warehouse(self):
-        print("📥 Starting SQL Server Data Warehouse Loading...")
+        logger.info("📥 Starting SQL Server Data Warehouse Loading...")
         cleaned_files = glob.glob(os.path.join(self.config.CLEANED_DATA_FOLDER, "*.csv.gz"))
         if not cleaned_files:
-            print("❌ No cleaned data found. Please run Data Cleaning first (Option 2).")
+            logger.error("❌ No cleaned data found. Please run Data Cleaning first (Option 2).")
             return
 
         if not self.db_config.test_connection():
-            print("❌ Cannot connect to SQL Server.")
+            logger.error("❌ Cannot connect to SQL Server.")
             return
 
         # create DB/schema if needed
         self.db_config.create_database()
-        conn = self.db_config.create_connection(database='AirbnbDataWarehouse')
+        conn = self.db_config.create_connection(database=self.config.SQL_DATABASE)
         try:
             # prepare tables and views
             self._execute_sql_file(conn, 'sql/data/00_prepare_tables.sql')
@@ -57,14 +61,14 @@ class AirbnbDataLoader:
             self._load_data_with_dynamic_paths(conn)
             self._execute_view_scripts(conn)
             self._show_database_statistics(conn)
-            print("\n✅ SQL Data Warehouse loading completed!")
+            logger.info("\n✅ SQL Data Warehouse loading completed!")
         except Exception as e:
-            print(f"❌ Error during data loading: {e}")
+            logger.error(f"❌ Error during data loading: {e}")
         finally:
             conn.close()
 
     def _load_data_with_dynamic_paths(self, conn):
-        print("   Clearing existing data from tables...")
+        logger.info("   Clearing existing data from tables...")
         cursor = conn.cursor()
         try:
             # Delete from tables in the correct order to respect foreign keys
@@ -75,9 +79,9 @@ class AirbnbDataLoader:
             cursor.execute("DELETE FROM dim_hosts;")
             
             conn.commit()
-            print("   ✅ Tables cleared successfully.")
+            logger.info("   ✅ Tables cleared successfully.")
         except Exception as e:
-            print(f"   ❌ Error clearing tables: {e}")
+            logger.error(f"   ❌ Error clearing tables: {e}")
             conn.rollback()
             return
 
@@ -86,7 +90,7 @@ class AirbnbDataLoader:
         reviews_files = glob.glob(os.path.join(self.config.CLEANED_DATA_FOLDER, "*reviews*.csv.gz"))
 
         if not listings_files:
-            print("❌ No cleaned listings files found")
+            logger.error("❌ No cleaned listings files found")
             return
 
         for file_path in listings_files:
@@ -103,7 +107,7 @@ class AirbnbDataLoader:
             self._load_reviews_data(conn, file_path)
 
     def _load_listings_data(self, conn, file_path: str):
-        print(f"   ↳ Loading listings file: {os.path.basename(file_path)}")
+        logger.info(f"   ↳ Loading listings file: {os.path.basename(file_path)}")
         temp_file_path: Optional[str] = None
         cursor = conn.cursor()
 
@@ -190,7 +194,7 @@ class AirbnbDataLoader:
                     conn.commit()
                     staging_inserted += len(batch)
                 except Exception as be:
-                    print(f"   ⚠️ Staging batch insert failed: {be}")
+                    logger.warning(f"   ⚠️ Staging batch insert failed: {be}")
                     for j, single in enumerate(batch):
                         try:
                             cursor.execute(insert_staging_sql, single)
@@ -201,7 +205,7 @@ class AirbnbDataLoader:
                             with open(errlog, 'a', encoding='utf-8') as ef:
                                 ef.write(','.join([str(x) if x is not None else '' for x in single]) + '\n')
 
-            print(f"   INFO: staged {staging_inserted} rows into dim_listings_staging")
+            logger.info(f"   INFO: staged {staging_inserted} rows into dim_listings_staging")
 
             move_sql = '''
 SET NOCOUNT ON;
@@ -311,7 +315,7 @@ END CATCH
                 
                 conn.commit()
             except Exception as e:
-                print(f"   ❌ Error moving staging -> dim_listings: {e}")
+                logger.error(f"   ❌ Error moving staging -> dim_listings: {e}")
                 conn.rollback()
                 return
 
@@ -327,10 +331,10 @@ END CATCH
                     elif action == 'UPDATE':
                         updated_count = count
 
-            print(f"   ✅ Loaded: {os.path.basename(file_path)} - Listings added: {inserted_count:,}, Listings updated: {updated_count:,}")
+            logger.info(f"   ✅ Loaded: {os.path.basename(file_path)} - Listings added: {inserted_count:,}, Listings updated: {updated_count:,}")
 
         except Exception as e:
-            print(f"   ❌ Error processing file {file_path}: {e}")
+            logger.error(f"   ❌ Error processing file {file_path}: {e}")
             self.consecutive_errors += 1
 
     def _load_calendar_data(self, conn, file_path: str):
@@ -346,17 +350,16 @@ END CATCH
             try:
                 self._ensure_dim_dates_for_file(conn, temp_file_path)
             except Exception as ed:
-                print(f"   ⚠️ Warning: ensure_dim_dates_for_file failed: {ed}")
+                logger.warning(f"   ⚠️ Warning: ensure_dim_dates_for_file failed: {ed}")
 
             # Copy the temp CSV to a project-controlled logs path so SQL Server can access it reliably
             try:
                 stable_path = os.path.join(self.config.LOGS_DIR, f"calendar_temp_for_sql_{pd.Timestamp.now().strftime('%Y%m%dT%H%M%S')}.csv")
-                import shutil
                 shutil.copyfile(temp_file_path, stable_path)
-                print(f"   INFO: calendar CSV copied to: {stable_path}")
+                logger.info(f"   INFO: calendar CSV copied to: {stable_path}")
             except Exception as e:
                 stable_path = temp_file_path
-                print(f"   ⚠️ Warning: failed to copy temp CSV to logs: {e}; using original path {temp_file_path}")
+                logger.warning(f"   ⚠️ Warning: failed to copy temp CSV to logs: {e}; using original path {temp_file_path}")
 
             with open('sql/data/04_load_calendar.sql', 'r', encoding='utf-8-sig') as f:
                 sql_script = f.read()
@@ -374,12 +377,12 @@ END CATCH
                     dbg_path = os.path.join(self.config.LOGS_DIR, f'calendar_sql_error_{pd.Timestamp.now().strftime("%Y%m%dT%H%M%S")}.sql')
                     with open(dbg_path, 'w', encoding='utf-8') as df:
                         df.write(sql_script)
-                    print(f"   ❌ Calendar SQL failed. SQL written to: {dbg_path}")
+                    logger.error(f"   ❌ Calendar SQL failed. SQL written to: {dbg_path}")
                 except Exception:
                     pass
-                print(f"   ❌ Error executing calendar SQL: {e}")
+                logger.error(f"   ❌ Error executing calendar SQL: {e}")
                 conn.rollback()
-                print(f"   ✅ Loaded: {os.path.basename(file_path)} - Calendar records added: 0")
+                logger.info(f"   ✅ Loaded: {os.path.basename(file_path)} - Calendar records added: 0")
                 return
 
             # scan result sets for a scalar named 'inserted_calendar_rows'
@@ -405,14 +408,14 @@ END CATCH
                 conn.rollback()
 
             if inserted_count is not None:
-                print(f"   ✅ Loaded: {os.path.basename(file_path)} - Calendar records added: {inserted_count:,}, Records updated: 0")
+                logger.info(f"   ✅ Loaded: {os.path.basename(file_path)} - Calendar records added: {inserted_count:,}, Records updated: 0")
             else:
                 # fallback: compute by counting difference
                 cursor.execute("SELECT COUNT(*) FROM fact_calendar")
                 final_rows = cursor.fetchone()[0]
                 cursor.execute("SELECT COUNT(*) FROM fact_calendar")
                 # We don't have initial_rows here; just print final rows as added
-                print(f"   ✅ Loaded: {os.path.basename(file_path)} - Calendar records now: {final_rows:,}")
+                logger.info(f"   ✅ Loaded: {os.path.basename(file_path)} - Calendar records now: {final_rows:,}")
 
         finally:
             # clean up original temp file; keep the stable copy in logs for debugging/audit
@@ -493,13 +496,13 @@ END
                     if not cursor.nextset():
                         break
             except Exception as e:
-                print(f"   ⚠️ Could not retrieve exact insert count: {e}")
+                logger.warning(f"   ⚠️ Could not retrieve exact insert count: {e}")
 
             conn.commit()
-            print(f"   ✅ Loaded: {os.path.basename(file_path)} - Reviews added: {inserted_count:,}, Reviews updated: 0")
+            logger.info(f"   ✅ Loaded: {os.path.basename(file_path)} - Reviews added: {inserted_count:,}, Reviews updated: 0")
 
         except Exception as e:
-            print(f"   ❌ Error loading reviews: {e}")
+            logger.error(f"   ❌ Error loading reviews: {e}")
             conn.rollback()
         finally:
             if temp_file_path and os.path.exists(temp_file_path):
@@ -515,7 +518,7 @@ END
 
     def _execute_sql_file(self, conn, script_path: str):
         if not os.path.exists(script_path):
-            print(f"   ⚠️  SQL script not found: {script_path}")
+            logger.warning(f"   ⚠️  SQL script not found: {script_path}")
             return
         try:
             with open(script_path, 'r', encoding='utf-8-sig') as f:
@@ -531,14 +534,14 @@ END
                 except Exception as e:
                     # Ignore errors on DROP TABLE statements
                     if "DROP TABLE" in statement.upper():
-                        print(f"   ⚠️  Ignoring error on DROP TABLE: {e}")
+                        logger.warning(f"   ⚠️  Ignoring error on DROP TABLE: {e}")
                     else:
                         raise e
             
             conn.commit()
-            print(f"   ✅ Executed: {os.path.basename(script_path)}")
+            logger.info(f"   ✅ Executed: {os.path.basename(script_path)}")
         except Exception as e:
-            print(f"   ❌ Error executing {script_path}: {e}")
+            logger.error(f"   ❌ Error executing {script_path}: {e}")
             conn.rollback()
 
     def _show_database_statistics(self, conn):
@@ -547,7 +550,7 @@ END
             tables = ['dim_listings','dim_hosts','dim_dates','fact_calendar','fact_reviews']
             for t in tables:
                 cursor.execute(f"SELECT COUNT(*) FROM {t}")
-                print(f"{t}: {cursor.fetchone()[0]}")
+                logger.info(f"{t}: {cursor.fetchone()[0]}")
         except Exception as e:
-            print(f"Error showing stats: {e}")
+            logger.error(f"Error showing stats: {e}")
             # no-op: logging the exception above is sufficient

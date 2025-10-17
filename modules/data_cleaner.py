@@ -11,6 +11,9 @@ import json
 
 from config.settings import Config
 from utils.utility import validate_directory, print_progress
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 class AirbnbDataCleaner:
     
@@ -38,7 +41,7 @@ class AirbnbDataCleaner:
                 return city, country
             
         except Exception as e:
-            print(f"   ⚠️  Error parsing filename {filename}: {e}")
+            logger.warning(f"   ⚠️  Error parsing filename {filename}: {e}")
         
         return 'Unknown', 'Unknown'
     
@@ -63,12 +66,12 @@ class AirbnbDataCleaner:
     
     def _clean_file_type(self, file_type: str, output_folder: str):
         """Clean a specific file type with proper geographic hierarchy"""
-        print(f"\n📁 Processing {file_type} files...")
+        logger.info(f"\n📁 Processing {file_type} files...")
         pattern = os.path.join(self.config.RAW_DATA_FOLDER, f"*{file_type}*.csv.gz")
         files = glob.glob(pattern)
         
         if not files:
-            print(f"❌ No {file_type} files found")
+            logger.error(f"❌ No {file_type} files found")
             return
         
         relevant_cols = self.relevant_columns.get(file_type, [])
@@ -84,7 +87,7 @@ class AirbnbDataCleaner:
                 missing_cols = [col for col in relevant_cols if col not in df.columns]
                 
                 if missing_cols:
-                    print(f"   ⚠️  Missing columns: {missing_cols}")
+                    logger.warning(f"   ⚠️  Missing columns: {missing_cols}")
                 
                 # Create cleaned dataframe
                 df_clean = df[existing_cols].copy()
@@ -97,9 +100,9 @@ class AirbnbDataCleaner:
                         df_clean['host_city'] = host_location_data.apply(lambda x: x[0])
                         df_clean['host_country'] = host_location_data.apply(lambda x: x[1])
                         
-                        print(f"   👤 Parsed host_location into:")
-                        print(f"      • {df_clean['host_country'].nunique()} unique host countries")
-                        print(f"      • {df_clean['host_city'].nunique()} unique host cities")
+                        logger.info(f"   👤 Parsed host_location into:")
+                        logger.info(f"      • {df_clean['host_country'].nunique()} unique host countries")
+                        logger.info(f"      • {df_clean['host_city'].nunique()} unique host cities")
                     
                     # 2. Create property geographic hierarchy FROM FILENAME (CORRECTED)
                     property_city, property_country = self.infer_geography_from_filename(file_path)
@@ -107,9 +110,9 @@ class AirbnbDataCleaner:
                     df_clean['property_city'] = property_city
                     df_clean['property_neighbourhood'] = df_clean.get('neighbourhood_cleansed', 'Unknown')
                     
-                    print(f"   🏠 Created property hierarchy from filename:")
-                    print(f"      • Property: {property_city}, {property_country}")
-                    print(f"      • {df_clean['property_neighbourhood'].nunique()} neighborhoods")
+                    logger.info(f"   🏠 Created property hierarchy from filename:")
+                    logger.info(f"      • Property: {property_city}, {property_country}")
+                    logger.info(f"      • {df_clean['property_neighbourhood'].nunique()} neighborhoods")
                     
                     # 3. Calculate local vs foreign indicator
                     if 'host_country' in df_clean.columns and 'property_country' in df_clean.columns:
@@ -119,7 +122,7 @@ class AirbnbDataCleaner:
                         local_pct = (local_count / len(df_clean)) * 100
                         foreign_pct = (foreign_count / len(df_clean)) * 100
                         
-                        print(f"   🌍 Host types: {local_count:,} local ({local_pct:.1f}%), {foreign_count:,} foreign ({foreign_pct:.1f}%)")
+                        logger.info(f"   🌍 Host types: {local_count:,} local ({local_pct:.1f}%), {foreign_count:,} foreign ({foreign_pct:.1f}%)")
                     
                     # 4. DROP redundant columns
                     columns_to_drop = []
@@ -130,18 +133,18 @@ class AirbnbDataCleaner:
                     
                     if columns_to_drop:
                         df_clean = df_clean.drop(columns_to_drop, axis=1)
-                        print(f"   🗑️  Dropped redundant columns: {columns_to_drop}")
+                        logger.info(f"   🗑️  Dropped redundant columns: {columns_to_drop}")
                     
                     # Show final geographic distribution
                     if 'property_country' in df_clean.columns:
                         country_counts = df_clean['property_country'].value_counts()
-                        print(f"   📊 Final property distribution:")
+                        logger.info(f"   📊 Final property distribution:")
                         for country, count in country_counts.items():
-                            print(f"      • {country}: {count:,} listings")
+                            logger.info(f"      • {country}: {count:,} listings")
                 
                 # Save cleaned file
                 if df_clean.empty:
-                    print(f"   ⚠️  Skipping empty file: {os.path.basename(file_path)}")
+                    logger.warning(f"   ⚠️  Skipping empty file: {os.path.basename(file_path)}")
                     continue
 
                 output_filename = f"minimal_{os.path.basename(file_path)}"
@@ -152,16 +155,16 @@ class AirbnbDataCleaner:
                 original_col_count = df.shape[1]
                 reduction_percent = ((original_col_count - final_col_count) / original_col_count) * 100
                 
-                print(f"   ✅ Cleaned: {os.path.basename(file_path)}")
-                print(f"      📊 {original_col_count} → {final_col_count} columns (-{reduction_percent:.1f}%)")
-                print(f"      📈 {df_clean.shape[0]:,} rows preserved")
+                logger.info(f"   ✅ Cleaned: {os.path.basename(file_path)}")
+                logger.info(f"      📊 {original_col_count} → {final_col_count} columns (-{reduction_percent:.1f}%)")
+                logger.info(f"      📈 {df_clean.shape[0]:,} rows preserved")
                 
                 processed_count += 1
                 
             except Exception as e:
-                print(f"   ❌ Error processing {os.path.basename(file_path)}: {e}")
+                logger.error(f"   ❌ Error processing {os.path.basename(file_path)}: {e}")
         
-        print(f"🎯 Successfully processed {processed_count}/{len(files)} {file_type} files")
+        logger.info(f"🎯 Successfully processed {processed_count}/{len(files)} {file_type} files")
 
     # ... rest of the class remains the same ...
     def _define_minimal_columns(self) -> Dict[str, List[str]]:
@@ -190,25 +193,25 @@ class AirbnbDataCleaner:
     
     def analyze_column_relevance(self):
         """Analyze which columns exist and their relevance"""
-        print("🔍 Analyzing column relevance across all files...")
+        logger.info("🔍 Analyzing column relevance across all files...")
         
         # First, analyze property location columns specifically
         self.analyze_property_location_columns()
         
-        print(f"\nCONTINUING WITH GENERAL COLUMN ANALYSIS")
-        print("-" * 40)
+        logger.info(f"\nCONTINUING WITH GENERAL COLUMN ANALYSIS")
+        logger.info("-" * 40)
         
         for file_type in ['listings', 'reviews', 'calendar']:
-            print(f"\n{file_type.upper()} FILES:")
+            logger.info(f"\n{file_type.upper()} FILES:")
             
             pattern = os.path.join(self.config.RAW_DATA_FOLDER, f"*{file_type}*.csv.gz")
             files = glob.glob(pattern)
             
             if not files:
-                print("   ❌ No files found")
+                logger.warning("   ❌ No files found")
                 continue
                 
-            print(f"   Found {len(files)} files")
+            logger.info(f"   Found {len(files)} files")
             
             # Analyze first file
             sample_file = files[0]
@@ -217,45 +220,46 @@ class AirbnbDataCleaner:
                 all_columns = set(df_sample.columns)
                 relevant_cols = set(self.relevant_columns[file_type])
                 
-                print(f"   📊 Columns: {len(all_columns)} total → {len(relevant_cols)} kept")
-                print(f"   🗑️  Reduction: {((len(all_columns) - len(relevant_cols)) / len(all_columns) * 100):.1f}%")
+                logger.info(f"   📊 Columns: {len(all_columns)} total → {len(relevant_cols)} kept")
+                logger.info(f"   🗑️  Reduction: {((len(all_columns) - len(relevant_cols)) / len(all_columns) * 100):.1f}%")
                 
-                print(f"\n   ✅ KEEPING ({len(relevant_cols)}):")
+                logger.info(f"\n   ✅ KEEPING ({len(relevant_cols)}):")
                 for col in sorted(relevant_cols):
                     exists = "✓" if col in all_columns else "✗"
-                    print(f"      {exists} {col}")
+                    logger.info(f"      {exists} {col}")
                     
             except Exception as e:
-                print(f"   ⚠️  Error reading {os.path.basename(sample_file)}: {e}")
+                logger.error(f"   ⚠️  Error reading {os.path.basename(sample_file)}: {e}")
     
     def analyze_property_location_columns(self):
         """Specifically analyze property location columns"""
-        print("🔍 Analyzing PROPERTY location columns...")
+        logger.info("🔍 Analyzing PROPERTY location columns...")
         
         pattern = os.path.join(self.config.RAW_DATA_FOLDER, "*listings*.csv.gz")
         files = glob.glob(pattern)
         
         if not files:
-            print("❌ No listing files found")
+            logger.error("❌ No listing files found")
             return
         
         sample_file = files[0]
-        print(f"📊 Analyzing: {os.path.basename(sample_file)}")
+        logger.info(f"📊 Analyzing: {os.path.basename(sample_file)}")
         
         # Show how filename parsing will work
-        print(f"\n🏠 PROPERTY LOCATION INFERENCE FROM FILENAMES:")
+        logger.info(f"\n🏠 PROPERTY LOCATION INFERENCE FROM FILENAMES:")
         for file_path in files[:5]:  # Show first 5 files as examples
             city, country = self.infer_geography_from_filename(file_path)
-            print(f"   • {os.path.basename(file_path)}")
-            print(f"     → Property: {city}, {country}")
+            logger.info(f"   • {os.path.basename(file_path)}")
+            logger.info(f"     → Property: {city}, {country}")
     
     def create_cleaned_dataset(self, output_folder: str = None):
         """Create cleaned datasets with proper geographic hierarchy"""
         if not output_folder:
             output_folder = self.config.CLEANED_DATA_FOLDER
         
-        validate_directory(output_folder, create_if_missing=True)
-        print(f"\n🧹 Creating cleaned datasets in: {output_folder}")
+        # The directory is already ensured to exist by Config.__init__
+        # validate_directory(output_folder, create_if_missing=True)
+        logger.info(f"\n🧹 Creating cleaned datasets in: {output_folder}")
         
         # Process each file type
         for file_type in ['listings', 'reviews', 'calendar']:

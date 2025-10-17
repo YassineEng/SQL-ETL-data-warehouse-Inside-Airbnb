@@ -17,7 +17,6 @@ WITH (
     ROWTERMINATOR = '0x0a'
 );
 
-SELECT 'DEBUG: #temp_calendar content' AS DebugInfo, * FROM #temp_calendar;
 
 IF OBJECT_ID('tempdb..#inserted_calendar_ids') IS NOT NULL DROP TABLE #inserted_calendar_ids;
 CREATE TABLE #inserted_calendar_ids (calendar_id BIGINT);
@@ -50,5 +49,4 @@ DROP TABLE #temp_calendar;
 ALTER TABLE fact_calendar WITH CHECK CHECK CONSTRAINT ALL;
 
 
-ALTER TABLE fact_calendar WITH CHECK CHECK CONSTRAINT ALL;
-PRINT '✅ Calendar data loaded successfully';
+

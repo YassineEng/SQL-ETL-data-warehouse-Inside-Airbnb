@@ -43,4 +43,3 @@ SELECT
 FROM dim_listings
 GROUP BY host_country, host_city;
 
-PRINT 'âœ… All views created successfully';

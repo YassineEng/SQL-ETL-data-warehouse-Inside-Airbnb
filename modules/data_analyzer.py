@@ -14,6 +14,9 @@ from datetime import datetime
 
 from modules.spark_manager import SparkSessionManager
 from config.settings import Config
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 class AirbnbDataAnalyzer:
     """
@@ -32,8 +35,8 @@ class AirbnbDataAnalyzer:
     
     def analyze_all_files(self):
         """Main EDA analysis method"""
-        print("🔍 Starting Exploratory Data Analysis...")
-        print(f"📁 Data folder: {self.config.RAW_DATA_FOLDER}")
+        logger.info("🔍 Starting Exploratory Data Analysis...")
+        logger.info(f"📁 Data folder: {self.config.RAW_DATA_FOLDER}")
         
         try:
             # Find and analyze files
@@ -64,23 +67,23 @@ class AirbnbDataAnalyzer:
             files = glob.glob(pattern)
             if files:
                 file_groups[file_type] = files
-                print(f"✅ Found {len(files)} {file_type} files")
+                logger.info(f"✅ Found {len(files)} {file_type} files")
             else:
-                print(f"⚠️  No {file_type} files found")
+                logger.warning(f"⚠️  No {file_type} files found")
         
         return file_groups
     
     def analyze_file_type(self, file_type: str, files: List[str]):
         """Analyze a specific file type"""
-        print(f"\n{'='*60}")
-        print(f"📊 Analyzing {file_type.upper()} files")
-        print(f"{'='*60}")
+        logger.info(f"\n{'='*60}")
+        logger.info(f"📊 Analyzing {file_type.upper()} files")
+        logger.info(f"{'='*60}")
         
-        print(f"📂 Found {len(files)} {file_type} files")
+        logger.info(f"📂 Found {len(files)} {file_type} files")
         
         # Use first file for detailed analysis
         sample_file = files[0]
-        print(f"🔍 Detailed analysis of: {os.path.basename(sample_file)}")
+        logger.info(f"🔍 Detailed analysis of: {os.path.basename(sample_file)}")
         
         # Run both Pandas and Spark analysis
         pandas_analysis = self._pandas_analysis(sample_file, file_type)
@@ -99,7 +102,7 @@ class AirbnbDataAnalyzer:
     def _pandas_analysis(self, file_path: str, file_type: str) -> Dict:
         """Quick analysis using Pandas (for smaller datasets)"""
         try:
-            print("   📊 Running Pandas analysis...")
+            logger.info("   📊 Running Pandas analysis...")
             
             df = pd.read_csv(file_path, compression='gzip', nrows=self.config.SAMPLE_SIZE)
             
@@ -122,12 +125,13 @@ class AirbnbDataAnalyzer:
             return analysis
             
         except Exception as e:
+            logger.error(f"Pandas analysis failed for {file_path}: {e}", exc_info=True)
             return {'error': f"Pandas analysis failed: {str(e)}"}
     
     def _spark_analysis_safe(self, file_path: str, file_type: str) -> Dict:
         """Safe PySpark analysis for large datasets"""
         try:
-            print("   ⚡ Running PySpark analysis...")
+            logger.info("   ⚡ Running PySpark analysis...")
             
             df = self.spark.read \
                 .option("compression", "gzip") \
@@ -146,39 +150,40 @@ class AirbnbDataAnalyzer:
             }
             
         except Exception as e:
+            logger.error(f"Spark analysis failed for {file_path}: {e}", exc_info=True)
             return {'error': f"Spark analysis failed: {str(e)}"}
     
     def _print_analysis_summary(self, file_type: str, pandas_analysis: Dict, spark_analysis: Dict):
         """Print analysis summary"""
-        print(f"\n   📋 {file_type.upper()} ANALYSIS SUMMARY:")
-        print(f"   {'─' * 40}")
+        logger.info(f"\n   📋 {file_type.upper()} ANALYSIS SUMMARY:")
+        logger.info(f"   {'─' * 40}")
         
         if 'error' in pandas_analysis:
-            print(f"   ❌ Pandas Error: {pandas_analysis['error']}")
+            logger.error(f"   ❌ Pandas Error: {pandas_analysis['error']}")
         else:
-            print(f"   📊 Shape: {pandas_analysis['shape']}")
-            print(f"   🗂️  Columns: {len(pandas_analysis['columns'])}")
-            print(f"   💾 Memory: {pandas_analysis['memory_usage_mb']:.2f} MB")
+            logger.info(f"   📊 Shape: {pandas_analysis['shape']}")
+            logger.info(f"   🗂️  Columns: {len(pandas_analysis['columns'])}")
+            logger.info(f"   💾 Memory: {pandas_analysis['memory_usage_mb']:.2f} MB")
     
     def generate_summary_report(self):
         """Generate comprehensive EDA summary"""
-        print(f"\n{'='*80}")
-        print("📈 COMPREHENSIVE EDA SUMMARY REPORT")
-        print(f"{'='*80}")
+        logger.info(f"\n{'='*80}")
+        logger.info("📈 COMPREHENSIVE EDA SUMMARY REPORT")
+        logger.info(f"{'='*80}")
         
         for file_type, analysis in self.analysis_results.items():
-            print(f"\n🎯 {file_type.upper()} FILES:")
+            logger.info(f"\n🎯 {file_type.upper()} FILES:")
             pandas_data = analysis['pandas']
             
             if 'error' not in pandas_data:
-                print(f"   📊 Dimensions: {pandas_data['shape'][0]:,} rows × {pandas_data['shape'][1]} columns")
-                print(f"   💾 Memory usage: {pandas_data['memory_usage_mb']:.2f} MB")
+                logger.info(f"   📊 Dimensions: {pandas_data['shape'][0]:,} rows × {pandas_data['shape'][1]} columns")
+                logger.info(f"   💾 Memory usage: {pandas_data['memory_usage_mb']:.2f} MB")
     
     def get_recommendations(self):
         """Generate data cleaning and modeling recommendations"""
-        print(f"\n{'='*80}")
-        print("💡 DATA WAREHOUSE DESIGN RECOMMENDATIONS")
-        print(f"{'='*80}")
+        logger.info(f"\n{'='*80}")
+        logger.info("💡 DATA WAREHOUSE DESIGN RECOMMENDATIONS")
+        logger.info(f"{'='*80}")
         
         for file_type, analysis in self.analysis_results.items():
             pandas_data = analysis['pandas']
@@ -186,20 +191,20 @@ class AirbnbDataAnalyzer:
             if 'error' in pandas_data:
                 continue
                 
-            print(f"\n📋 {file_type.upper()} RECOMMENDATIONS:")
+            logger.info(f"\n📋 {file_type.upper()} RECOMMENDATIONS:")
             
             # Data quality recommendations
             high_missing_cols = {k: v for k, v in pandas_data['missing_percentage'].items() if v > 50}
             if high_missing_cols:
-                print(f"   🗑️  Drop columns with >50% missing: {list(high_missing_cols.keys())}")
+                logger.info(f"   🗑️  Drop columns with >50% missing: {list(high_missing_cols.keys())}")
     
     def identify_join_keys(self):
         """Identify relationships between tables"""
-        print(f"\n{'='*80}")
-        print("🔗 DATA MODEL RELATIONSHIPS")
-        print(f"{'='*80}")
+        logger.info(f"\n{'='*80}")
+        logger.info("🔗 DATA MODEL RELATIONSHIPS")
+        logger.info(f"{'='*80}")
         
-        print("   📊 Fact Tables: calendar (daily metrics), reviews (review metrics)")
-        print("   🏠 Dimension Tables: listings (property info), hosts, neighborhoods")
-        print("   🔑 Primary Keys: listing_id, host_id, date")
-        print("   🤝 Foreign Keys: listing_id connects all tables")
+        logger.info("   📊 Fact Tables: calendar (daily metrics), reviews (review metrics)")
+        logger.info("   🏠 Dimension Tables: listings (property info), hosts, neighborhoods")
+        logger.info("   🔑 Primary Keys: listing_id, host_id, date")
+        logger.info("   🤝 Foreign Keys: listing_id connects all tables")
