@@ -1,7 +1,20 @@
+# pyproject.toml
 [project]
-name = "sql-data-warehouse"
-version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
-requires-python = ">=3.11"
-dependencies = []
+name = "airbnb-data-warehouse"
+version = "1.0.0"
+description = "ETL Pipeline for Airbnb Data Warehouse"
+dependencies = [
+    "pandas",
+    "pyspark", 
+    "numpy",
+    "pyarrow",
+    "python-dateutil",
+    "pyodbc",
+]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["config", "modules", "utils"]
