@@ -26,8 +26,6 @@ parts/
 sdist/
 var/
 wheels/
-*.egg-info/
-.installed.cfg
 *.egg
 MANIFEST
 
@@ -56,3 +54,6 @@ metastore_db/
 
 # UV package manager
 .uv/
+
+# Continue.dev files
+.continue/
