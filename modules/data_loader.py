@@ -386,11 +386,17 @@ END CATCH
                 logger.info(f"   ✅ Loaded: {os.path.basename(file_path)} - Calendar records added: {inserted_count:,}, Records updated: 0")
             else:
                 # fallback: compute by counting difference
+                initial_rows = 0
+                try:
+                    cursor.execute("SELECT COUNT(*) FROM fact_calendar")
+                    initial_rows = cursor.fetchone()[0]
+                except Exception:
+                    pass
+
                 cursor.execute("SELECT COUNT(*) FROM fact_calendar")
                 final_rows = cursor.fetchone()[0]
-                cursor.execute("SELECT COUNT(*) FROM fact_calendar")
-                # We don't have initial_rows here; just print final rows as added
-                logger.info(f"   ✅ Loaded: {os.path.basename(file_path)} - Calendar records now: {final_rows:,}")
+                inserted_count = final_rows - initial_rows
+                logger.info(f"   ✅ Loaded: {os.path.basename(file_path)} - Calendar records added: {inserted_count:,} (calculated)")
 
         finally:
             # clean up original temp file; keep the stable copy in logs for debugging/audit
