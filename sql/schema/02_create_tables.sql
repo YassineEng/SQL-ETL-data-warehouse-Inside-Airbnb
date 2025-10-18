@@ -1,13 +1,6 @@
 ﻿-- sql/schema/02_create_tables.sql
 USE AirbnbDataWarehouse;
 
--- Drop tables if they exist (in correct order due to foreign keys)
-IF OBJECT_ID('fact_reviews', 'U') IS NOT NULL DROP TABLE fact_reviews;
-IF OBJECT_ID('fact_calendar', 'U') IS NOT NULL DROP TABLE fact_calendar;
-IF OBJECT_ID('dim_dates', 'U') IS NOT NULL DROP TABLE dim_dates;
-IF OBJECT_ID('dim_hosts', 'U') IS NOT NULL DROP TABLE dim_hosts;
-IF OBJECT_ID('dim_listings', 'U') IS NOT NULL DROP TABLE dim_listings;
-
 -- Dimension Table: Listings (Properties)
 CREATE TABLE dim_listings (
     listing_id BIGINT PRIMARY KEY,
@@ -31,7 +24,6 @@ CREATE TABLE dim_listings (
 -- Use a surrogate primary key so we can store raw IDs even when they do not
 -- convert to BIGINT. listing_id is nullable and only populated when the
 -- raw value can be converted to an existing dim_listings.listing_id.
-IF OBJECT_ID('dim_listing_id_map', 'U') IS NOT NULL DROP TABLE dim_listing_id_map;
 CREATE TABLE dim_listing_id_map (
     mapping_id BIGINT IDENTITY(1,1) PRIMARY KEY,
     listing_id BIGINT NULL,
@@ -61,7 +53,6 @@ CREATE TABLE dim_listings_staging (
 );
 
 -- Temporary staging tables
-IF OBJECT_ID('fact_calendar_temp', 'U') IS NOT NULL DROP TABLE fact_calendar_temp;
 CREATE TABLE fact_calendar_temp (
     listing_id BIGINT,
     date DATE,
@@ -69,7 +60,6 @@ CREATE TABLE fact_calendar_temp (
     price VARCHAR(50)
 );
 
-IF OBJECT_ID('fact_reviews_temp', 'U') IS NOT NULL DROP TABLE fact_reviews_temp;
 CREATE TABLE fact_reviews_temp (
     review_id BIGINT,
     listing_id BIGINT,

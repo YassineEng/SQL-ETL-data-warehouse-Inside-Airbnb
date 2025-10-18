@@ -299,73 +299,58 @@ def check_database_status(db_config: DatabaseConfig, config: Config):
     except Exception as e:
         logger.error(f"❌ Error checking database status: {e}")
 
-def reset_database(db_config: DatabaseConfig, config: Config):
+def reset_database(db_config: DatabaseConfig, config: Config, interactive: bool = True):
     """Reset the entire database"""
-    logger.warning("\n⚠️  RESET DATABASE")
-    logger.warning(f"This will DROP and RECREATE the entire {config.SQL_DATABASE}!")
-    
-    confirmation = input("Type 'YES' to confirm: ").strip()
-    if confirmation != 'YES':
-        logger.info("❌ Reset cancelled")
-        return
-    
-    try:
-        conn = db_config.create_connection('master')
-        # ALTER DATABASE and DROP DATABASE cannot run inside a user transaction.
-        # Enable autocommit so these statements execute immediately.
-        try:
-            conn.autocommit = True
-        except Exception:
-            # some drivers may use a different attribute name; ignore if not available
-            pass
-        cursor = conn.cursor()
-
-        # Execute drop if exists
-        try:
-            cursor.execute(f"""
-                IF EXISTS (SELECT name FROM sys.databases WHERE name = '{config.SQL_DATABASE}')
-                BEGIN
-                    ALTER DATABASE {config.SQL_DATABASE} SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
-                    DROP DATABASE {config.SQL_DATABASE};
-                    PRINT '✅ Database dropped successfully';
-                END
-                ELSE
-                BEGIN
-                    PRINT 'ℹ️  Database does not exist';
-                END
-            """)
-        except Exception as inner_e:
-            logger.error(f"❌ Error executing DROP/ALTER statements: {inner_e}")
-            try:
-                conn.close()
-            except Exception:
-                pass
+    if interactive:
+        logger.warning("\n⚠️  RESET DATABASE")
+        logger.warning(f"This will DROP and RECREATE the entire {config.SQL_DATABASE}!")
+        
+        confirmation = input("Type 'YES' to confirm: ").strip()
+        if confirmation != 'YES':
+            logger.info("❌ Reset cancelled")
             return
 
-        try:
+    try:
+        conn = db_config.create_connection('master')
+        conn.autocommit = True
+        cursor = conn.cursor()
+
+        cursor.execute(f"""
+            IF EXISTS (SELECT name FROM sys.databases WHERE name = '{config.SQL_DATABASE}')
+            BEGIN
+                ALTER DATABASE {config.SQL_DATABASE} SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+                DROP DATABASE {config.SQL_DATABASE};
+            END
+        """)
+
+        # Verify that the database was dropped
+        cursor.execute(f"SELECT name FROM sys.databases WHERE name = '{config.SQL_DATABASE}'")
+        if cursor.fetchone() is not None:
+            logger.error(f"❌ Failed to drop database '{config.SQL_DATABASE}'. It still exists.")
             conn.close()
-        except Exception:
-            pass
+            return
 
-        # Recreate database using DatabaseConfig helper (it sets autocommit internally)
-        try:
-            db_config.create_database()
-            logger.info("✅ Database reset completed! Database recreated.")
-            
-            # Re-apply the schema
-            logger.info("Applying schema to the new database...")
-            conn_airbnb = db_config.create_connection(config.SQL_DATABASE)
-            loader = AirbnbDataLoader(config, db_config)
-            loader._execute_schema_scripts(conn_airbnb)
-            conn_airbnb.close()
-            logger.info("✅ Schema applied successfully.")
+        logger.info("✅ Database dropped successfully.")
+        conn.close()
 
-        except Exception as e:
-            logger.error(f"❌ Error recreating database or applying schema: {e}")
-            logger.info("💡 The database was dropped; please recreate it manually or retry the reset.")
+        # Recreate database
+        db_config.create_database()
+        logger.info("✅ Database recreated successfully.")
+
+        # Re-apply the schema
+        logger.info("Applying schema to the new database...")
+        conn_airbnb = db_config.create_connection(config.SQL_DATABASE)
+        loader = AirbnbDataLoader(config, db_config)
+        loader._execute_schema_scripts(conn_airbnb)
+        conn_airbnb.close()
+        logger.info("✅ Schema applied successfully.")
 
     except Exception as e:
         logger.error(f"❌ Error resetting database: {e}")
+
+def reset_database_non_interactive(db_config: DatabaseConfig, config: Config):
+    """Reset the entire database without user interaction."""
+    reset_database(db_config, config, interactive=False)
 
 def view_database_stats(db_config: DatabaseConfig, config: Config):
     """View database statistics and sizes"""
@@ -414,6 +399,21 @@ def view_database_stats(db_config: DatabaseConfig, config: Config):
         
     except Exception as e:
         logger.error(f"❌ Error viewing database stats: {e}")
+
+def run_sql_data_loading_non_interactive(config: Config, db_config: DatabaseConfig):
+    """Load cleaned data into SQL Server data warehouse without user interaction."""
+    logger.info("\n" + "="*60)
+    logger.info("📥 STARTING SQL SERVER DATA LOADING (NON-INTERACTIVE)")
+    logger.info("="*60)
+
+    # Check if cleaned data exists
+    cleaned_files = config.get_cleaned_data_files()
+    if not cleaned_files:
+        logger.error("❌ No cleaned data files found!")
+        return
+
+    loader = AirbnbDataLoader(config, db_config)
+    loader.load_to_warehouse()
 
 if __name__ == "__main__":
     main()

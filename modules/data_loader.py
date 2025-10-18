@@ -215,31 +215,6 @@ BEGIN TRY
     -- Declare a table variable to store the output of the MERGE statement
     DECLARE @merge_summary TABLE(action VARCHAR(10));
 
-    -- Ensure archive table exists for staging snapshots
-    IF OBJECT_ID('dim_listings_staging_archive', 'U') IS NULL
-    BEGIN
-        CREATE TABLE dim_listings_staging_archive (
-            listing_id NVARCHAR(MAX),
-            host_id NVARCHAR(MAX),
-            host_name NVARCHAR(MAX),
-            host_city NVARCHAR(MAX),
-            host_country NVARCHAR(MAX),
-            property_country NVARCHAR(MAX),
-            property_city NVARCHAR(MAX),
-            property_neighbourhood NVARCHAR(MAX),
-            price NVARCHAR(MAX),
-            number_of_reviews NVARCHAR(MAX),
-            review_scores_rating NVARCHAR(MAX),
-            calculated_host_listings_count NVARCHAR(MAX),
-            is_local_host NVARCHAR(MAX),
-            archived_at DATETIME2 DEFAULT GETDATE()
-        );
-    END;
-
-    -- Insert a server-side archive snapshot of staging
-    INSERT INTO dim_listings_staging_archive (listing_id, host_id, host_name, host_city, host_country, property_country, property_city, property_neighbourhood, price, number_of_reviews, review_scores_rating, calculated_host_listings_count, is_local_host)
-    SELECT listing_id, host_id, host_name, host_city, host_country, property_country, property_city, property_neighbourhood, price, number_of_reviews, review_scores_rating, calculated_host_listings_count, is_local_host FROM dim_listings_staging;
-
     -- Upsert listings: merge staging values into dim_listings (update existing, insert new)
     MERGE INTO dim_listings AS target
     USING (
@@ -509,7 +484,7 @@ END
                 os.remove(temp_file_path)
 
     def _execute_schema_scripts(self, conn):
-        schema_files = ['sql/schema/02_create_tables.sql']
+        schema_files = ['sql/schema/01_drop_tables.sql', 'sql/schema/02_create_tables.sql']
         for s in schema_files:
             self._execute_sql_file(conn, s)
 
