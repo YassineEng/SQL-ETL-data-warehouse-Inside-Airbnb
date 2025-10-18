@@ -114,16 +114,6 @@ class AirbnbDataCleaner:
                     logger.info(f"      • Property: {property_city}, {property_country}")
                     logger.info(f"      • {df_clean['property_neighbourhood'].nunique()} neighborhoods")
                     
-                    # 3. Calculate local vs foreign indicator
-                    if 'host_country' in df_clean.columns and 'property_country' in df_clean.columns:
-                        df_clean['is_local_host'] = df_clean['host_country'] == df_clean['property_country']
-                        local_count = df_clean['is_local_host'].sum()
-                        foreign_count = len(df_clean) - local_count
-                        local_pct = (local_count / len(df_clean)) * 100
-                        foreign_pct = (foreign_count / len(df_clean)) * 100
-                        
-                        logger.info(f"   🌍 Host types: {local_count:,} local ({local_pct:.1f}%), {foreign_count:,} foreign ({foreign_pct:.1f}%)")
-                    
                     # 4. DROP redundant columns
                     columns_to_drop = []
                     if 'host_location' in df_clean.columns:
