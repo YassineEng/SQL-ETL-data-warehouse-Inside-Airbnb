@@ -68,15 +68,18 @@ print('Rows that match both dim_listings and dim_dates:', match_count)
 if match_count > 0:
     print('Inserting matched rows into fact_calendar (sample)')
     insert_calendar = '''
-    INSERT INTO fact_calendar (listing_id, date_id, available, price)
+    INSERT INTO fact_calendar (listing_id, week_start_date, week_end_date, avg_price_per_week, available_days_per_week)
     SELECT
       TRY_CAST(c.listing_id AS BIGINT) AS listing_id,
-      d.date_id AS date_id,
-      CASE WHEN LOWER(LTRIM(RTRIM(c.available))) IN ('t','true','1') THEN 1 WHEN LOWER(LTRIM(RTRIM(c.available))) IN ('f','false','0') THEN 0 ELSE NULL END AS available,
-      TRY_CAST(REPLACE(REPLACE(LTRIM(RTRIM(c.price)), '$', ''), ',', '') AS DECIMAL(10,2)) AS price
+      DATEADD(wk, DATEDIFF(wk, 0, CONVERT(DATE, c.date)), 0) AS week_start_date,
+      DATEADD(wk, DATEDIFF(wk, 0, CONVERT(DATE, c.date)), 6) AS week_end_date,
+      AVG(TRY_CAST(REPLACE(REPLACE(LTRIM(RTRIM(c.price)), '$', ''), ',', '') AS DECIMAL(10,2))) AS avg_price_per_week,
+      SUM(CASE WHEN LOWER(LTRIM(RTRIM(c.available))) IN ('t','true','1') THEN 1 ELSE 0 END) AS available_days_per_week
     FROM calendar_debug_staging c
     JOIN dim_listings l ON TRY_CAST(c.listing_id AS BIGINT) = l.listing_id
-    JOIN dim_dates d ON CONVERT(DATE, c.date) = d.full_date
+    GROUP BY
+      TRY_CAST(c.listing_id AS BIGINT),
+      DATEADD(wk, DATEDIFF(wk, 0, CONVERT(DATE, c.date)), 0)
     '''
     cur.execute(insert_calendar)
     conn.commit()

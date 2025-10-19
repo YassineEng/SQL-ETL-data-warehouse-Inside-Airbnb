@@ -76,6 +76,7 @@ class AirbnbDataCleaner:
         
         relevant_cols = self.relevant_columns.get(file_type, [])
         processed_count = 0
+        empty_files_log_path = os.path.join(self.config.LOGS_DIR, 'empty_files.txt')
         
         for file_path in files:
             try:
@@ -135,6 +136,8 @@ class AirbnbDataCleaner:
                 # Save cleaned file
                 if df_clean.empty:
                     logger.warning(f"   ⚠️  Skipping empty file: {os.path.basename(file_path)}")
+                    with open(empty_files_log_path, 'a') as f:
+                        f.write(f"{os.path.basename(file_path)}\n")
                     continue
 
                 output_filename = f"minimal_{os.path.basename(file_path)}"
@@ -247,6 +250,10 @@ class AirbnbDataCleaner:
         if not output_folder:
             output_folder = self.config.CLEANED_DATA_FOLDER
         
+        empty_files_log_path = os.path.join(self.config.LOGS_DIR, 'empty_files.txt')
+        if os.path.exists(empty_files_log_path):
+            os.remove(empty_files_log_path)
+
         # The directory is already ensured to exist by Config.__init__
         # validate_directory(output_folder, create_if_missing=True)
         logger.info(f"\n🧹 Creating cleaned datasets in: {output_folder}")

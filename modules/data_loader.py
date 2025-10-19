@@ -18,9 +18,12 @@ Key behaviors:
 import os
 import glob
 import gzip
+import numpy as np
 import tempfile
 from typing import Optional
 import shutil
+from datetime import date, timedelta
+import calendar
 
 import pandas as pd
 import pyodbc
@@ -95,13 +98,10 @@ class AirbnbDataLoader:
 
         for file_path in listings_files:
             self._load_listings_data(conn, file_path)
+            print(f"DEBUG: Completed processing file: {file_path}")
 
-        # hosts and dates are derived from listings and calendar
-        self._execute_sql_file(conn, 'sql/data/02_load_hosts.sql')
-        self._execute_sql_file(conn, 'sql/data/03_load_dates.sql')
-
-        for file_path in calendar_files:
-            self._load_calendar_data(conn, file_path)
+        print("DEBUG: Listings files loop completed.")
+        print("DEBUG: Reached dim_hosts population logic.")
 
         for file_path in reviews_files:
             self._load_reviews_data(conn, file_path)
@@ -206,6 +206,17 @@ class AirbnbDataLoader:
                                 ef.write(','.join([str(x) if x is not None else '' for x in single]) + '\n')
 
             logger.info(f"   INFO: staged {staging_inserted} rows into dim_listings_staging")
+            logger.info("DEBUG: About to count valid listings in staging.")
+
+            # Check valid listing_ids in staging before MERGE
+            cursor.execute("SELECT COUNT(*) FROM dim_listings_staging WHERE TRY_CAST(listing_id AS BIGINT) IS NOT NULL")
+            valid_listings_in_staging = cursor.fetchone()[0]
+            logger.info(f"   INFO: {valid_listings_in_staging} valid listing_ids found in dim_listings_staging for MERGE.")
+
+            # Add this to check valid host_ids in staging
+            cursor.execute("SELECT COUNT(*) FROM dim_listings_staging WHERE TRY_CAST(host_id AS BIGINT) IS NOT NULL")
+            valid_hosts_in_staging = cursor.fetchone()[0]
+            logger.info(f"   INFO: {valid_hosts_in_staging} valid host_ids found in dim_listings_staging for MERGE.")
 
             move_sql = '''
 SET NOCOUNT ON;
@@ -230,8 +241,7 @@ BEGIN TRY
             TRY_CAST(REPLACE(REPLACE(price, '$', ''), ',', '') AS DECIMAL(10,2)) AS price,
             TRY_CAST(number_of_reviews AS BIGINT) AS number_of_reviews,
             TRY_CAST(review_scores_rating AS DECIMAL(5,2)) AS review_scores_rating,
-            TRY_CAST(calculated_host_listings_count AS BIGINT) AS calculated_host_listings_count,
-            CASE WHEN is_local_host = 'True' THEN 1 WHEN is_local_host = 'False' THEN 0 ELSE NULL END AS is_local_host
+            TRY_CAST(calculated_host_listings_count AS BIGINT) AS calculated_host_listings_count
         FROM dim_listings_staging
         WHERE TRY_CAST(listing_id AS BIGINT) IS NOT NULL
     ) AS src
@@ -248,11 +258,10 @@ BEGIN TRY
             price = src.price,
             number_of_reviews = src.number_of_reviews,
             review_scores_rating = src.review_scores_rating,
-            calculated_host_listings_count = src.calculated_host_listings_count,
-            is_local_host = src.is_local_host
+            calculated_host_listings_count = src.calculated_host_listings_count
     WHEN NOT MATCHED BY TARGET THEN
-        INSERT (listing_id, host_id, host_name, host_city, host_country, property_country, property_city, property_neighbourhood, price, number_of_reviews, review_scores_rating, calculated_host_listings_count, is_local_host)
-        VALUES (src.listing_id, src.host_id, src.host_name, src.host_city, src.host_country, src.property_country, src.property_city, src.property_neighbourhood, src.price, src.number_of_reviews, src.review_scores_rating, src.calculated_host_listings_count, src.is_local_host)
+        INSERT (listing_id, host_id, host_name, host_city, host_country, property_country, property_city, property_neighbourhood, price, number_of_reviews, review_scores_rating, calculated_host_listings_count)
+        VALUES (src.listing_id, src.host_id, src.host_name, src.host_city, src.host_country, src.property_country, src.property_city, src.property_neighbourhood, src.price, src.number_of_reviews, src.review_scores_rating, src.calculated_host_listings_count)
     OUTPUT $action INTO @merge_summary;
 
     -- Always insert mapping rows for every staging row so raw IDs are preserved.
@@ -275,6 +284,12 @@ BEGIN TRY
     FROM @merge_summary
     GROUP BY action;
 
+    -- Add this line to check total rows in dim_listings
+    SELECT COUNT(*) AS total_dim_listings_rows FROM dim_listings;
+
+    -- Add this line to check non-NULL host_ids in dim_listings
+    SELECT COUNT(host_id) AS non_null_host_ids_in_dim_listings FROM dim_listings WHERE host_id IS NOT NULL;
+
 END TRY
 BEGIN CATCH
     ROLLBACK TRANSACTION;
@@ -284,16 +299,24 @@ END CATCH
 
             try:
                 cursor.execute(move_sql)
-                
+
                 # Fetch the summary from the SELECT statement
                 summary = cursor.fetchall()
-                
+
+                # Move to the next result set to get the total dim_listings count
+                cursor.nextset()
+                total_dim_listings_rows = cursor.fetchone()[0]
+
+                # Move to the next result set to get the non-NULL host_ids count
+                cursor.nextset()
+                non_null_host_ids_in_dim_listings = cursor.fetchone()[0]
+
                 conn.commit()
             except Exception as e:
                 logger.error(f"   ❌ Error moving staging -> dim_listings: {e}")
                 conn.rollback()
                 return
-
+            
             # Process the summary
             inserted_count = 0
             updated_count = 0
@@ -305,99 +328,88 @@ END CATCH
                         inserted_count = count
                     elif action == 'UPDATE':
                         updated_count = count
-
+            
             logger.info(f"   ✅ Loaded: {os.path.basename(file_path)} - Listings added: {inserted_count:,}, Listings updated: {updated_count:,}")
+            logger.info(f"   INFO: Total rows in dim_listings after merge: {total_dim_listings_rows:,}")
+            logger.info(f"   INFO: Non-NULL host_ids in dim_listings after merge: {non_null_host_ids_in_dim_listings:,}")
 
         except Exception as e:
             logger.error(f"   ❌ Error processing file {file_path}: {e}")
             self.consecutive_errors += 1
 
     def _load_calendar_data(self, conn, file_path: str):
-        temp_file_path = None
+        logger.info(f"   ↳ Loading calendar file: {os.path.basename(file_path)}")
+        temp_file_path: Optional[str] = None
+        cursor = conn.cursor()
+
         try:
-            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv', encoding='utf-8', newline='') as temp_csv_file:
-                temp_file_path = temp_csv_file.name
-                df = pd.read_csv(gzip.open(file_path, 'rt', encoding='utf-8'), sep='|', engine='python')
-                df.to_csv(temp_csv_file, sep='|', index=False, lineterminator='\n')
-            self.data_validator.validate_and_fix_calendar_data(temp_file_path)
+            df = pd.read_csv(gzip.open(file_path, 'rt', encoding='utf-8'), sep='|', engine='python')
 
-            # Ensure dim_dates contains the full date range for this calendar file
-            try:
-                self._ensure_dim_dates_for_file(conn, temp_file_path)
-            except Exception as ed:
-                logger.warning(f"   ⚠️ Warning: ensure_dim_dates_for_file failed: {ed}")
+            # Convert 'date' column to datetime
+            df['date'] = pd.to_datetime(df['date'])
 
-            # Copy the temp CSV to a project-controlled logs path so SQL Server can access it reliably
-            try:
-                stable_path = os.path.join(self.config.LOGS_DIR, f"calendar_temp_for_sql_{pd.Timestamp.now().strftime('%Y%m%dT%H%M%S')}.csv")
-                shutil.copyfile(temp_file_path, stable_path)
-                logger.info(f"   INFO: calendar CSV copied to: {stable_path}")
-            except Exception as e:
-                stable_path = temp_file_path
-                logger.warning(f"   ⚠️ Warning: failed to copy temp CSV to logs: {e}; using original path {temp_file_path}")
+            # Ensure dim_dates is populated for the date range in the current calendar file
+            min_date = df['date'].min().date()
+            max_date = df['date'].max().date()
+            self._ensure_dim_dates(conn, min_date, max_date)
 
-            with open('sql/data/04_load_calendar.sql', 'r', encoding='utf-8-sig') as f:
-                sql_script = f.read()
-            # Use backslash-escaped path in the SQL so BULK INSERT sees a normal Windows path
-            sql_script = sql_script.replace('{{CALENDAR_FILE_PATH}}', stable_path.replace('\\', '\\\\'))
+            # Convert 'available' to boolean (1/0)
+            df['available'] = df['available'].map({'t': 1, 'f': 0})
 
-            cursor = conn.cursor()
-            # Execute the SQL script; the script will OUTPUT inserted IDs and return
-            # a single-row result set named 'inserted_calendar_rows' with the count when present.
-            try:
-                cursor.execute(sql_script)
-            except Exception as e:
-                # dump SQL to log for debugging
+            # Clean and convert 'price' to numeric
+            df['price'] = pd.to_numeric(df['price'].replace({'\$': '', ',': ''}, regex=True), errors='coerce')
+
+            # Group by listing_id and week
+            # Define week start as Monday
+            # Calculate week_start_date (Monday of the week)
+            # Monday is weekday 0, Sunday is 6
+            df['week_start_date'] = df['date'] - pd.to_timedelta(df['date'].dt.weekday, unit='D')
+
+            weekly_agg = df.groupby(['listing_id', 'week_start_date']).agg(
+                avg_price_per_week=('price', 'mean'),
+                available_days_per_week=('available', 'sum')
+            ).reset_index()
+
+            weekly_agg['avg_price_per_week'] = weekly_agg['avg_price_per_week'].replace({pd.NA: None, np.nan: None})
+
+            # Calculate week_end_date
+            weekly_agg['week_end_date'] = weekly_agg['week_start_date'] + pd.to_timedelta(6, unit='D')
+
+            # Insert into fact_calendar
+            insert_sql = """
+                INSERT INTO fact_calendar (listing_id, week_start_date, week_end_date, avg_price_per_week, available_days_per_week)
+                VALUES (?, ?, ?, ?, ?)
+            """
+            
+            rows_to_insert = weekly_agg[['listing_id', 'week_start_date', 'week_end_date', 'avg_price_per_week', 'available_days_per_week']].values.tolist()
+
+            cursor.fast_executemany = True
+            batch_size = 500
+            inserted_count = 0
+            for i in range(0, len(rows_to_insert), batch_size):
+                batch = rows_to_insert[i:i+batch_size]
                 try:
-                    dbg_path = os.path.join(self.config.LOGS_DIR, f'calendar_sql_error_{pd.Timestamp.now().strftime("%Y%m%dT%H%M%S")}.sql')
-                    with open(dbg_path, 'w', encoding='utf-8') as df:
-                        df.write(sql_script)
-                    logger.error(f"   ❌ Calendar SQL failed. SQL written to: {dbg_path}")
-                except Exception:
-                    pass
-                logger.error(f"   ❌ Error executing calendar SQL: {e}")
-                conn.rollback()
-                logger.info(f"   ✅ Loaded: {os.path.basename(file_path)} - Calendar records added: 0")
-                return
+                    cursor.executemany(insert_sql, batch)
+                    conn.commit()
+                    inserted_count += len(batch)
+                except Exception as be:
+                    logger.warning(f"   ⚠️ Batch insert failed for calendar data: {be}")
+                    conn.rollback()
+                    # Attempt single row inserts for error logging
+                    for single_row in batch:
+                        try:
+                            cursor.execute(insert_sql, single_row)
+                            conn.commit()
+                            inserted_count += 1
+                        except Exception as se:
+                            logger.error(f"   ❌ Failed to insert single calendar row: {single_row}. Error: {se}")
+                            conn.rollback()
 
-            # scan result sets for a scalar named 'inserted_calendar_rows'
-            inserted_count = None
-            try:
-                while True:
-                    desc = cursor.description
-                    if desc and len(desc) == 1 and desc[0][0].lower() == 'inserted_calendar_rows':
-                        row = cursor.fetchone()
-                        if row:
-                            inserted_count = int(row[0])
-                        break
-                    # move to next result set
-                    if not cursor.nextset():
-                        break
-            except Exception:
-                pass
+            logger.info(f"   ✅ Loaded: {os.path.basename(file_path)} - Calendar records added: {inserted_count:,}")
 
-            # commit after successful execution
-            try:
-                conn.commit()
-            except Exception:
-                conn.rollback()
-
-            if inserted_count is not None:
-                logger.info(f"   ✅ Loaded: {os.path.basename(file_path)} - Calendar records added: {inserted_count:,}, Records updated: 0")
-            else:
-                # fallback: compute by counting difference
-                initial_rows = 0
-                try:
-                    cursor.execute("SELECT COUNT(*) FROM fact_calendar")
-                    initial_rows = cursor.fetchone()[0]
-                except Exception:
-                    pass
-
-                cursor.execute("SELECT COUNT(*) FROM fact_calendar")
-                final_rows = cursor.fetchone()[0]
-                inserted_count = final_rows - initial_rows
-                logger.info(f"   ✅ Loaded: {os.path.basename(file_path)} - Calendar records added: {inserted_count:,} (calculated)")
-
+        except Exception as e:
+            logger.error(f"   ❌ Error processing calendar file {file_path}: {e}")
+            self.consecutive_errors += 1
         finally:
             # clean up original temp file; keep the stable copy in logs for debugging/audit
             if temp_file_path and os.path.exists(temp_file_path):
@@ -406,63 +418,28 @@ END CATCH
                 except Exception:
                     pass
 
-    def _ensure_dim_dates_for_file(self, conn, csv_path: str):
-        """Idempotently ensure dim_dates covers the min/max date found in the given CSV file.
-
-        This reads only the date column with pandas (fast) and inserts missing dates using a parametrized
-        recursive CTE executed on the server to avoid transferring large date ranges.
-        """
-        # read minimal column set to get min/max date
-        df = pd.read_csv(csv_path, sep='|', usecols=['date'], parse_dates=['date'], engine='python')
-        if df.empty:
-            return
-        min_date = df['date'].min().date()
-        max_date = df['date'].max().date()
-        cursor = conn.cursor()
-        # Use parameterized SQL that inserts missing dates between min_date and max_date
-        ensure_sql = '''
-DECLARE @min_date DATE = ?;
-DECLARE @max_date DATE = ?;
-IF @min_date IS NOT NULL AND @max_date IS NOT NULL
-BEGIN
-    ;WITH date_range AS (
-        SELECT @min_date AS dt
-        UNION ALL
-        SELECT DATEADD(day, 1, dt) FROM date_range WHERE dt < @max_date
-    )
-    INSERT INTO dim_dates (full_date, year, quarter, month, month_name, day, day_name, is_weekend)
-    SELECT
-        dt,
-        YEAR(dt) AS year,
-        DATEPART(quarter, dt) AS quarter,
-        MONTH(dt) AS month,
-        DATENAME(month, dt) AS month_name,
-        DAY(dt) AS day,
-        DATENAME(weekday, dt) AS day_name,
-        CASE WHEN DATEPART(weekday, dt) IN (1, 7) THEN 1 ELSE 0 END AS is_weekend
-    FROM date_range d
-    WHERE NOT EXISTS (SELECT 1 FROM dim_dates dd WHERE dd.full_date = d.dt)
-    OPTION (MAXRECURSION 0);
-END
-'''
-        cursor.execute(ensure_sql, (min_date, max_date))
-        conn.commit()
-
     def _load_reviews_data(self, conn, file_path: str):
         temp_file_path = None
+        cursor = conn.cursor()
         try:
-            temp_file = tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.csv')
-            temp_file_path = temp_file.name
-            with gzip.open(file_path, 'rb') as f_in:
-                for line in f_in:
-                    temp_file.write(line)
-            temp_file.close()
+            try:
+                temp_file = tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.csv')
+                temp_file_path = temp_file.name
+                with gzip.open(file_path, 'rb') as f_in:
+                    for line in f_in:
+                        temp_file.write(line)
+                temp_file.close()
+            except (gzip.BadGzipFile, EOFError) as e:
+                logger.error(f"   ❌ Error reading gzip file {file_path}: {e}")
+                if 'temp_file' in locals() and temp_file:
+                    temp_file.close()
+                # Skip this file
+                return
 
             with open('sql/data/05_load_reviews.sql', 'r', encoding='utf-8-sig') as f:
                 sql_script = f.read()
             sql_script = 'SET NOCOUNT ON;\n' + sql_script.replace('{{REVIEWS_FILE_PATH}}', temp_file_path.replace('\\', '\\\\'))
 
-            cursor = conn.cursor()
             cursor.execute(sql_script)
 
             inserted_count = 0
@@ -486,8 +463,50 @@ END
             logger.error(f"   ❌ Error loading reviews: {e}")
             conn.rollback()
         finally:
+            if cursor:
+                cursor.close()
             if temp_file_path and os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
+
+    def _ensure_dim_dates(self, conn, min_date: date, max_date: date):
+        logger.info(f"   ↳ Ensuring dim_dates for range: {min_date} -> {max_date}")
+        cursor = conn.cursor()
+        try:
+            # collect existing dates
+            cursor.execute('SELECT full_date FROM dim_dates WHERE full_date BETWEEN ? AND ?', (min_date, max_date))
+            existing = {r[0] for r in cursor.fetchall()}
+
+            # generate all dates in range
+            all_dates = []
+            cur_date = min_date
+            while cur_date <= max_date:
+                if cur_date not in existing:
+                    all_dates.append(cur_date)
+                cur_date = cur_date + timedelta(days=1)
+
+            if all_dates:
+                insert_sql = 'INSERT INTO dim_dates (full_date, year, quarter, month, month_name, day, day_name, is_weekend) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+                params = []
+                for d in all_dates:
+                    y = d.year
+                    m = d.month
+                    q = (m - 1) // 3 + 1
+                    month_name = calendar.month_name[m]
+                    day = d.day
+                    day_name = calendar.day_name[d.weekday()]
+                    is_weekend = 1 if d.weekday() >= 5 else 0
+                    params.append((d, y, q, m, month_name, day, day_name, is_weekend))
+                
+                cursor.fast_executemany = True
+                cursor.executemany(insert_sql, params)
+                conn.commit()
+                logger.info(f"   ✅ Inserted missing dates: {len(all_dates)}")
+            else:
+                logger.info("   ✅ No missing dates to insert.")
+
+        except Exception as e:
+            logger.error(f"   ❌ Error ensuring dim_dates: {e}")
+            conn.rollback()
 
     def _execute_schema_scripts(self, conn):
         schema_files = ['sql/schema/01_drop_tables.sql', 'sql/schema/02_create_tables.sql']

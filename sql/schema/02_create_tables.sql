@@ -92,15 +92,15 @@ CREATE TABLE dim_dates (
     is_weekend BIT
 );
 
--- Fact Table: Calendar (Daily availability and pricing)
+-- Fact Table: Calendar (Weekly availability and pricing)
 CREATE TABLE fact_calendar (
-    calendar_id BIGINT IDENTITY(1,1) PRIMARY KEY,
     listing_id BIGINT,
-    date_id INT,
-    available BIT,
-    price DECIMAL(10,2),
-    FOREIGN KEY (listing_id) REFERENCES dim_listings(listing_id),
-    FOREIGN KEY (date_id) REFERENCES dim_dates(date_id)
+    week_start_date DATE,
+    week_end_date DATE,
+    avg_price_per_week DECIMAL(10,2),
+    available_days_per_week INT,
+    PRIMARY KEY (listing_id, week_start_date),
+    FOREIGN KEY (listing_id) REFERENCES dim_listings(listing_id)
 );
 
 -- Fact Table: Reviews

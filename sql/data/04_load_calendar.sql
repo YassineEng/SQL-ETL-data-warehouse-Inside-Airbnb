@@ -19,30 +19,32 @@ WITH (
 
 
 IF OBJECT_ID('tempdb..#inserted_calendar_ids') IS NOT NULL DROP TABLE #inserted_calendar_ids;
-CREATE TABLE #inserted_calendar_ids (calendar_id BIGINT);
+CREATE TABLE #inserted_calendar_ids (listing_id BIGINT);
 
-INSERT INTO fact_calendar (listing_id, date_id, available, price)
-OUTPUT inserted.calendar_id INTO #inserted_calendar_ids
+INSERT INTO fact_calendar (listing_id, week_start_date, week_end_date, avg_price_per_week, available_days_per_week)
+OUTPUT inserted.listing_id INTO #inserted_calendar_ids -- Outputting listing_id as calendar_id is not available in fact_calendar
 SELECT 
     c.listing_id,
-    d.date_id,
-    CASE
-        WHEN LOWER(LTRIM(RTRIM(c.available))) IN ('t','true','1') THEN 1
-        WHEN LOWER(LTRIM(RTRIM(c.available))) IN ('f','false','0') THEN 0
-        ELSE NULL
-    END AS available,
-    TRY_CAST(
+    DATEADD(wk, DATEDIFF(wk, 0, CONVERT(DATE, c.date)), 0) AS week_start_date,
+    DATEADD(wk, DATEDIFF(wk, 0, CONVERT(DATE, c.date)), 6) AS week_end_date,
+    AVG(TRY_CAST(
         REPLACE(
             REPLACE(
                 LTRIM(RTRIM(REPLACE(c.price, CHAR(13), ''))),
             '$', ''),
         ',', '') AS DECIMAL(10,2)
-    ) AS price
+    )) AS avg_price_per_week,
+    SUM(CASE
+        WHEN LOWER(LTRIM(RTRIM(c.available))) IN ('t','true','1') THEN 1
+        ELSE 0
+    END) AS available_days_per_week
 FROM #temp_calendar c
-INNER JOIN dim_dates d ON CONVERT(DATE, c.date) = d.full_date
-INNER JOIN dim_listings l ON c.listing_id = l.listing_id;
+INNER JOIN dim_listings l ON c.listing_id = l.listing_id
+GROUP BY 
+    c.listing_id,
+    DATEADD(wk, DATEDIFF(wk, 0, CONVERT(DATE, c.date)), 0);
 
-SELECT COUNT(*) AS inserted_calendar_rows FROM #inserted_calendar_ids;
+SELECT COUNT(listing_id) AS inserted_calendar_rows FROM #inserted_calendar_ids;
 
 DROP TABLE #temp_calendar;
 

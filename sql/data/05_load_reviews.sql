@@ -31,18 +31,31 @@ IF OBJECT_ID('tempdb..#inserted_review_ids') IS NOT NULL DROP TABLE #inserted_re
 CREATE TABLE #inserted_review_ids (review_id BIGINT);
 
 -- Insert into fact table with proper data types and date mapping
+;WITH reviews_cte AS (
+    SELECT
+        r.id,
+        r.listing_id,
+        d.date_id,
+        r.reviewer_id,
+        r.reviewer_name,
+        r.comments,
+        ROW_NUMBER() OVER(PARTITION BY r.id ORDER BY (SELECT NULL)) as rn
+    FROM #temp_reviews r
+    INNER JOIN dim_dates d ON CONVERT(DATE, r.date) = d.full_date
+    INNER JOIN dim_listings l ON r.listing_id = l.listing_id
+)
 INSERT INTO fact_reviews (review_id, listing_id, date_id, reviewer_id, reviewer_name, comments)
 OUTPUT inserted.review_id INTO #inserted_review_ids
 SELECT 
-    r.id,
-    r.listing_id,
-    d.date_id,
-    r.reviewer_id,
-    r.reviewer_name,
-    r.comments
-FROM #temp_reviews r
-INNER JOIN dim_dates d ON CONVERT(DATE, r.date) = d.full_date
-INNER JOIN dim_listings l ON r.listing_id = l.listing_id;
+    cte.id,
+    cte.listing_id,
+    cte.date_id,
+    cte.reviewer_id,
+    cte.reviewer_name,
+    cte.comments
+FROM reviews_cte cte
+LEFT JOIN fact_reviews fr ON cte.id = fr.review_id
+WHERE cte.rn = 1 AND fr.review_id IS NULL;
 
 -- Return the count of inserted rows
 SELECT COUNT(*) AS inserted_review_rows FROM #inserted_review_ids;

@@ -49,6 +49,16 @@ def query_database():
         else:
             logger.info("No user tables found in the database.")
 
+        logger.info("\n--- First 10 rows of dim_hosts ---")
+        cursor.execute("SELECT TOP 10 * FROM dim_hosts")
+        rows = cursor.fetchall()
+        if rows:
+            for row in rows:
+                logger.info(f"  - {row}")
+        else:
+            logger.info("No rows found in dim_hosts.")
+        logger.info("------------------------------------")
+
     except Exception as e:
         logger.error(f"An error occurred during database query: {e}", exc_info=True)
     finally:

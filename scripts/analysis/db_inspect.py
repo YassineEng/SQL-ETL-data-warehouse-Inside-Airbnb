@@ -3,9 +3,11 @@ import sys
 sys.path.insert(0, str(Path('.').resolve()))
 
 from config.database_config import DatabaseConfig
+from config.settings import Config
 
 if __name__ == '__main__':
-    db = DatabaseConfig()
+    cfg = Config()
+    db = DatabaseConfig(cfg)
     conn = db.create_connection(database='AirbnbDataWarehouse')
     cur = conn.cursor()
 

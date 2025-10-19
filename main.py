@@ -110,6 +110,23 @@ def run_data_cleaning(config: Config):
         cleaner.create_cleaned_dataset()
         logger.info("\n✅ Data cleaning completed!")
 
+def run_data_cleaning_non_interactive(config: Config):
+    """Run data cleaning and transformation without user interaction."""
+    logger.info("\n" + "="*60)
+    logger.info("🧹 STARTING DATA CLEANING & TRANSFORMATION (NON-INTERACTIVE)")
+    logger.info("="*60)
+
+    # Check for raw data files
+    raw_files = config.get_data_files()
+    if not raw_files:
+        logger.error("❌ No raw data files found!")
+        logger.info(f"💡 Please ensure your raw CSV files are in: {config.RAW_DATA_FOLDER}")
+        return
+
+    cleaner = AirbnbDataCleaner(config)
+    cleaner.create_cleaned_dataset()
+    logger.info("\n✅ Data cleaning completed!")
+
 def run_sql_data_loading(config: Config, db_config: DatabaseConfig):
     """Load cleaned data into SQL Server data warehouse"""
     logger.info("\n" + "="*60)
@@ -136,6 +153,24 @@ def run_sql_data_loading(config: Config, db_config: DatabaseConfig):
             listings = glob.glob(os.path.join(config.CLEANED_DATA_FOLDER, '*listings*.csv.gz'))
             for f in listings:
                 loader._load_listings_data(conn, f)
+
+            logger.info("   ↳ Populating dim_hosts...")
+            cursor = conn.cursor()
+            cursor.execute("TRUNCATE TABLE dim_hosts;")
+            with open('sql/data/02_load_hosts.sql', 'r', encoding='utf-8-sig') as f:
+                sql_script = f.read()
+            cursor.execute(sql_script)
+
+            # Fetch the distinct hosts count
+            distinct_hosts_count = cursor.fetchone()[0]
+            logger.info(f"DEBUG: distinct_hosts_count = {distinct_hosts_count}")
+            logger.info(f"   INFO: {distinct_hosts_count:,} distinct hosts found in dim_listings.")
+
+            # Move to the next result set to get the inserted hosts count
+            cursor.nextset()
+            host_count = cursor.fetchone()[0]
+            conn.commit()
+            logger.info(f"   ✅ dim_hosts populated: {host_count:,} hosts added.")
         finally:
             conn.close()
     elif phase == '2':

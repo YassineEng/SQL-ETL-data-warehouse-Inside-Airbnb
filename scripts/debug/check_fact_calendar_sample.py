@@ -27,7 +27,7 @@ conn = db.create_connection(database='AirbnbDataWarehouse')
 cur = conn.cursor()
 cur.execute('SELECT COUNT(*) FROM fact_calendar')
 print('Total fact_calendar rows:', cur.fetchone()[0])
-cur.execute('SELECT COUNT(*) FROM fact_calendar WHERE date_id IN (SELECT date_id FROM dim_dates WHERE full_date BETWEEN ? AND ?)', (min_date, max_date))
+cur.execute('SELECT COUNT(*) FROM fact_calendar WHERE week_start_date <= ? AND week_end_date >= ?', (max_date, min_date))
 print('Rows in fact_calendar within sample date range:', cur.fetchone()[0])
 # check if a sample listing appears
 lid = int(listing_ids[0])

@@ -204,7 +204,7 @@ class AirbnbDataAnalyzer:
         logger.info("🔗 DATA MODEL RELATIONSHIPS")
         logger.info(f"{'='*80}")
         
-        logger.info("   📊 Fact Tables: calendar (daily metrics), reviews (review metrics)")
+        logger.info("   📊 Fact Tables: calendar (weekly metrics), reviews (review metrics)")
         logger.info("   🏠 Dimension Tables: listings (property info), hosts, neighborhoods")
         logger.info("   🔑 Primary Keys: listing_id, host_id, date")
         logger.info("   🤝 Foreign Keys: listing_id connects all tables")
