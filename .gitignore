@@ -57,3 +57,6 @@ metastore_db/
 
 # Continue.dev files
 .continue/
+
+# Documentation
+APPLICATION_GUIDE.md

@@ -62,7 +62,7 @@ class AirbnbDataLoader:
             self._execute_sql_file(conn, 'sql/data/00_prepare_tables.sql')
             self._execute_schema_scripts(conn)
             self._load_data_with_dynamic_paths(conn)
-            self._execute_view_scripts(conn)
+            self.create_views(conn)
             self._show_database_statistics(conn)
             logger.info("\n✅ SQL Data Warehouse loading completed!")
         except Exception as e:
@@ -513,7 +513,7 @@ END CATCH
         for s in schema_files:
             self._execute_sql_file(conn, s)
 
-    def _execute_view_scripts(self, conn):
+    def create_views(self, conn):
         self._execute_sql_file(conn, 'sql/schema/03_create_views.sql')
 
     def _execute_sql_file(self, conn, script_path: str):
@@ -523,26 +523,36 @@ END CATCH
         try:
             with open(script_path, 'r', encoding='utf-8-sig') as f:
                 sql_script = f.read()
-            
-            # Split the script into individual statements
-            statements = [statement for statement in sql_script.split(';') if statement.strip()]
-            
+
+            # Remove BOM, if it exists
+            if sql_script.startswith('\ufeff'):
+                sql_script = sql_script[1:]
+
+            # Split the script by 'GO' to handle batches
+            go_batches = sql_script.split('GO')
+
             cursor = conn.cursor()
-            for statement in statements:
-                try:
-                    cursor.execute(statement)
-                except Exception as e:
-                    # Ignore errors on DROP TABLE statements
-                    if "DROP TABLE" in statement.upper():
-                        logger.warning(f"   ⚠️  Ignoring error on DROP TABLE: {e}")
-                    else:
-                        raise e
-            
+            for batch in go_batches:
+                if not batch.strip():
+                    continue
+                # Further split each batch by ';' for individual statements
+                statements = [statement for statement in batch.split(';') if statement.strip()]
+                for statement in statements:
+                    try:
+                        cursor.execute(statement)
+                    except Exception as e:
+                        # Ignore errors on DROP statements
+                        if "DROP TABLE" in statement.upper() or "DROP VIEW" in statement.upper():
+                            logger.warning(f"   ⚠️  Ignoring error on DROP statement: {e}")
+                        else:
+                            raise e
+
             conn.commit()
             logger.info(f"   ✅ Executed: {os.path.basename(script_path)}")
         except Exception as e:
             logger.error(f"   ❌ Error executing {script_path}: {e}")
             conn.rollback()
+            raise e
 
     def _show_database_statistics(self, conn):
         try:

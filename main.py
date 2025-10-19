@@ -53,9 +53,10 @@ def main():
         logger.info("3. 📥 Run SQL Server Data Loading (Load to Database) - Uses CLEANED data")
         logger.info("4. 🔄 Run Complete ETL Pipeline")
         logger.info("5. 🗃️  Database Management")
-        logger.info("6. 🚪 Exit")
+        logger.info("6. 🖼️  Create/Update Views")
+        logger.info("7. 🚪 Exit")
         
-        choice = input("\nEnter your choice (1-6): ").strip()
+        choice = input("\nEnter your choice (1-7): ").strip()
         
         if choice == '1':
             run_eda_analysis(config)
@@ -68,10 +69,12 @@ def main():
         elif choice == '5':
             run_database_management(config, db_config)
         elif choice == '6':
+            run_create_views(config, db_config)
+        elif choice == '7':
             logger.info("👋 Exiting ETL Pipeline. Goodbye!")
             break
         else:
-            logger.warning("❌ Invalid choice. Please enter 1-6.")
+            logger.warning("❌ Invalid choice. Please enter 1-7.")
 
 def run_eda_analysis(config: Config):
     """Run Exploratory Data Analysis on raw data"""
@@ -109,7 +112,7 @@ def run_data_cleaning(config: Config):
     if response.lower() == 'y':
         cleaner.create_cleaned_dataset()
         logger.info("\n✅ Data cleaning completed!")
-
+1
 def run_data_cleaning_non_interactive(config: Config):
     """Run data cleaning and transformation without user interaction."""
     logger.info("\n" + "="*60)
@@ -243,6 +246,28 @@ def run_complete_etl(config: Config, db_config: DatabaseConfig):
     loader.load_to_warehouse()
     
     logger.info("\n✅ ETL PIPELINE COMPLETED SUCCESSFULLY!")
+
+def run_create_views(config: Config, db_config: DatabaseConfig):
+    """Create or update the database views"""
+    logger.info("\n" + "="*60)
+    logger.info("🖼️  CREATING/UPDATING DATABASE VIEWS")
+    logger.info("="*60)
+
+    if not db_config.database_exists():
+        logger.warning(f"❌ Database '{config.SQL_DATABASE}' does not exist")
+        return
+
+    try:
+        conn = db_config.create_connection(config.SQL_DATABASE)
+        loader = AirbnbDataLoader(config, db_config)
+        loader.create_views(conn)
+        logger.info("✅ Views created/updated successfully.")
+    except Exception as e:
+        logger.error(f"❌ Error creating views: {e}")
+    finally:
+        if 'conn' in locals() and conn:
+            conn.close()
+
 
 def run_database_management(config: Config, db_config: DatabaseConfig):
     """Database management operations"""

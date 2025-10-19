@@ -48,4 +48,3 @@ SELECT
     AVG(price) as avg_price
 FROM dbo.dim_listings
 GROUP BY host_country, host_city;
-GO
