@@ -1,2 +1,136 @@
-# SQL-data-warehouse-
-Create a data warehouse from Airbnb insights data "csv.gz" files
+# Airbnb Data Warehouse ETL Pipeline
+
+This document describes the Airbnb Data Warehouse ETL (Extract, Transform, Load) pipeline, designed to process raw Airbnb data (`csv.gz`) and load it into a SQL Server data warehouse. The pipeline includes modules for analysis, cleaning, validation, and loading, along with robust database management features.
+
+---
+
+## 1. Project Structure 📂
+
+**Airbnb-ETL/**
+
+- **config/** — Configuration & DB connection
+  - `settings.py`
+  - `database_config.py`
+- **data/** — Raw and cleaned data
+  - `raw_data/`
+  - `cleaned_data/`
+- **modules/** — Core ETL modules
+  - `data_analyzer.py`
+  - `data_cleaner.py`
+  - `data_loader.py`
+  - `data_validator.py`
+  - `spark_manager.py`
+- **sql/** — SQL scripts
+  - `schema/` — Tables, views, indexes
+  - `data/` — Dimension table loaders
+- **utils/** — Utilities
+  - `logger.py`
+  - `utility.py`
+- `main.py` — ETL CLI entry point
+
+---
+
+## 2. ETL Pipeline Overview (`main.py`) ⚡
+
+The main script provides a **command-line interface** to control the entire ETL workflow:
+
+| Option | Purpose | Input | Output |
+|--------|---------|-------|--------|
+| 1. 🔍 Run EDA Analysis | Explore raw data and detect issues | Raw files | Analysis logs, missing value report, schema insights |
+| 2. 🧹 Run Data Cleaning | Clean, standardize, and transform data | Raw files | Cleaned `csv.gz` files in `cleaned_data/` |
+| 3. 📥 Run SQL Server Data Loading | Load cleaned data into SQL Server | Cleaned files | Populated tables in `AirbnbDataWarehouse` |
+| 4. 🔄 Run Complete ETL Pipeline | Execute EDA → Cleaning → Loading | Raw files | Logs, cleaned data, fully populated warehouse |
+| 5. 🗃️ Database Management | Manage database objects and connectivity | User input | DB status, reset, or schema updates |
+| 6. 🖼️ Create/Update Views | Apply analytical views | `03_create_views.sql` | Updated views in DB |
+| 7. 🚪 Exit | Close the ETL CLI | – | – |
+
+---
+
+## 3. Configuration ⚙️
+
+### `config/settings.py`
+Defines project-wide settings using a `Config` dataclass:
+
+- **Directories:** `BASE_DIR`, `RAW_DATA_FOLDER`, `CLEANED_DATA_FOLDER`, `SQL_DIR`, `LOGS_DIR`
+- **File Patterns:** `LISTINGS_PATTERN`, `CALENDAR_PATTERN`, `REVIEWS_PATTERN`
+- **Processing:** `CHUNK_SIZE`, `SAMPLE_SIZE`
+- **Logging:** `LOG_LEVEL`, `LOG_FILE`
+- **SQL Server:** `SQL_SERVER`, `SQL_DATABASE`, `SQL_DRIVER`
+- **Spark:** `SPARK_APP_NAME`, `SPARK_MASTER`, `SPARK_CONFIG`
+
+### `config/database_config.py`
+Manages **SQL Server connections**:
+
+- `DatabaseConfig` class for `pyodbc` connections
+- Methods: `create_connection()`, `test_connection()`, `database_exists()`, `create_database()`
+
+---
+
+## 4. Core ETL Modules 🧩
+
+| Module | Purpose |
+|--------|--------|
+| `data_analyzer.py` | EDA on raw Airbnb data using Pandas & PySpark; generates summary reports and insights for schema design |
+| `data_cleaner.py` | Cleans data, infers geographic info, selects relevant columns, handles missing values, outputs cleaned files |
+| `data_loader.py` | Loads cleaned data into SQL Server using staging tables, MERGE operations, and `_execute_sql_file` for schema updates |
+| `data_validator.py` | Validates data and fixes format inconsistencies (e.g., boolean conversion for SQL Server) |
+| `spark_manager.py` | Manages Apache Spark sessions for scalable data processing |
+
+---
+
+## 5. Database Schema 🏗️
+
+### Dimension Tables
+
+| Table | Key Columns & Description |
+|-------|---------------------------|
+| `dim_listings` | `listing_id` (PK), `host_id`, `host_name`, `host_city`, `host_country`, `property_city`, `property_country`, `price`, `review_scores_rating`, `is_local_host`, timestamps |
+| `dim_listing_id_map` | Maps raw IDs to `listing_id`; preserves original string IDs (`listing_raw_id`, `part1/2/3`) |
+| `dim_hosts` | Host info with `host_id` (PK), `total_listings`, city/country |
+| `dim_dates` | Date dimension (`date_id`, `full_date`, year, quarter, month, day, is_weekend) |
+| `dim_listings_staging` | Staging table with all columns as `NVARCHAR(MAX)` |
+
+### Fact Tables
+
+| Table | Description |
+|-------|------------|
+| `fact_calendar` | Weekly availability and pricing per listing (`listing_id`, week start/end, avg_price, available_days) |
+| `fact_reviews` | Review details (`review_id`, `listing_id`, `date_id`, `reviewer_id`, `comments`) |
+
+### Views 🖥️
+
+- `vw_local_foreign_analysis` — Analysis of listings by host location  
+- `vw_neighborhood_performance` — Insights per neighborhood  
+- `vw_host_activity` — Host activity summary by city/country  
+
+### Indexes 📌
+
+Indexes are applied to **foreign keys and frequently queried columns**, e.g., `IX_dim_listings_host_id`, `IX_dim_listings_location`, `IX_fact_calendar_listing_date`.
+
+---
+
+## 6. Usage Instructions 🚀
+
+1. **Prerequisites**
+   - Python 3.x, SQL Server, ODBC Driver 17
+   - Required Python packages (`pip install -e .`)
+   - Raw Airbnb `csv.gz` files (update `RAW_DATA_FOLDER` in `settings.py`) you can find them in my Web-scraping-and-dataset-download-Inside-Airbnb
+     repo under data/airbnb_insights_data
+2. **Configuration**
+   - Update `config/settings.py` (`RAW_DATA_FOLDER`, `SQL_SERVER`, `SQL_DATABASE`)
+   - Optionally override via environment variables
+3. **Run the ETL Pipeline**
+   - Launch: `python main.py`
+   - Follow the CLI menu to perform analysis, cleaning, loading, or full ETL
+   - Use **option 6** to create/update views
+
+---
+
+## 7. Conclusion 🎯
+
+This ETL pipeline offers a **robust, modular, and extensible solution** for processing Airbnb data into a query-optimized data warehouse. Its architecture allows:
+
+- Efficient handling of large datasets with Spark  
+- Safe and incremental loading with staging and MERGE logic  
+- Easy maintenance and extension with modular code  
+- Analytics-ready views and optimized schema for business insights
