@@ -3,6 +3,19 @@
 This document describes the Airbnb Data Warehouse ETL (Extract, Transform, Load) pipeline, designed to process raw Airbnb data (`csv.gz`) and load it into a SQL Server data warehouse. The pipeline includes modules for analysis, cleaning, validation, and loading, along with robust database management features.
 
 ---
+## 📊 Database Statistics (Latest Snapshot)
+
+| Table | Rows | Size (MB) |
+|--------|------|-----------|
+| 🗺️ **dim_listing_id_map** | 20,797,039 | 2015.1 |
+| 💬 **fact_reviews** | 7,609,917 | 5810.4 |
+| 📅 **fact_calendar** | 4,087,416 | 226.1 |
+| 🏠 **dim_listings** | 1,609,332 | 439.0 |
+| 👤 **dim_hosts** | 815,633 | 63.4 |
+| 📆 **dim_dates** | 607 | 0.1 |
+| ⚙️ **dim_listings_staging** | 0 | 0.0 |
+| 🧩 **fact_calendar_temp** | 0 | 0.0 |
+| 🧪 **fact_reviews_temp** | 0 | 0.0 |
 
 ## 1. Project Structure 📂
 
@@ -94,7 +107,7 @@ Manages **SQL Server connections**:
 
 | Table | Description |
 |-------|------------|
-| `fact_calendar` | Weekly availability and pricing per listing (`listing_id`, week start/end, avg_price, available_days) |
+| `fact_calendar` | Agreggated weekly availability and pricing per listing (`listing_id`, week start/end, avg_price, available_days) |
 | `fact_reviews` | Review details (`review_id`, `listing_id`, `date_id`, `reviewer_id`, `comments`) |
 
 ### Views 🖥️
