@@ -194,9 +194,17 @@ class AirbnbDataAnalyzer:
             logger.info(f"\n📋 {file_type.upper()} RECOMMENDATIONS:")
             
             # Data quality recommendations
-            high_missing_cols = {k: v for k, v in pandas_data['missing_percentage'].items() if v > 50}
+            all_columns = pandas_data['columns']
+            missing_percentages = pandas_data['missing_percentage']
+            
+            high_missing_cols = {k: v for k, v in missing_percentages.items() if v > 50}
             if high_missing_cols:
                 logger.info(f"   🗑️  Drop columns with >50% missing: {list(high_missing_cols.keys())}")
+
+            # Identify columns to keep
+            cols_to_keep = [col for col in all_columns if col not in high_missing_cols]
+            if cols_to_keep:
+                logger.info(f"   ✅ Keep columns with <50% missing: {cols_to_keep}")
     
     def identify_join_keys(self):
         """Identify relationships between tables"""

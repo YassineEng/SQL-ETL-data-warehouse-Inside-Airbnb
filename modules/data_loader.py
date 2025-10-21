@@ -43,6 +43,21 @@ class AirbnbDataLoader:
         self.data_validator = DataValidator()
         self.consecutive_errors = 0
 
+    def _is_connection_error(self, e: Exception) -> bool:
+        return "Communication link failure" in str(e) or "Shared Memory Provider" in str(e)
+
+    def _reconnect(self, conn) -> pyodbc.Connection:
+        logger.info("   Re-establishing database connection...")
+        if conn:
+            try:
+                conn.close()
+            except Exception as e:
+                logger.warning(f"   ⚠️ Could not close existing connection: {e}")
+        
+        conn = self.db_config.create_connection(database=self.config.SQL_DATABASE)
+        logger.info("   ✅ Connection re-established.")
+        return conn
+
     def load_to_warehouse(self):
         logger.info("📥 Starting SQL Server Data Warehouse Loading...")
         cleaned_files = glob.glob(os.path.join(self.config.CLEANED_DATA_FOLDER, "*.csv.gz"))
@@ -103,6 +118,9 @@ class AirbnbDataLoader:
         print("DEBUG: Listings files loop completed.")
         print("DEBUG: Reached dim_hosts population logic.")
 
+        for file_path in calendar_files:
+            self._load_calendar_data(conn, file_path)
+
         for file_path in reviews_files:
             self._load_reviews_data(conn, file_path)
 
@@ -118,6 +136,7 @@ class AirbnbDataLoader:
             expected_cols = [
                 'id', 'host_id', 'host_name', 'host_city', 'host_country',
                 'property_country', 'property_city', 'property_neighbourhood',
+                'latitude', 'longitude',
                 'price', 'number_of_reviews', 'review_scores_rating',
                 'calculated_host_listings_count', 'is_local_host'
             ]
@@ -165,6 +184,8 @@ class AirbnbDataLoader:
                     sanitize_str(r.get('property_country'), 100),
                     sanitize_str(r.get('property_city'), 255),
                     sanitize_str(r.get('property_neighbourhood'), 255),
+                    sanitize_numstr(r.get('latitude')),
+                    sanitize_numstr(r.get('longitude')),
                     sanitize_price(r.get('price')),
                     sanitize_numstr(r.get('number_of_reviews')),
                     sanitize_numstr(r.get('review_scores_rating')),
@@ -180,8 +201,8 @@ class AirbnbDataLoader:
                 pass
 
             insert_staging_sql = (
-                "INSERT INTO dim_listings_staging (listing_id, host_id, host_name, host_city, host_country, property_country, property_city, property_neighbourhood, price, number_of_reviews, review_scores_rating, calculated_host_listings_count, is_local_host) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                "INSERT INTO dim_listings_staging (listing_id, host_id, host_name, host_city, host_country, property_country, property_city, property_neighbourhood, latitude, longitude, price, number_of_reviews, review_scores_rating, calculated_host_listings_count, is_local_host) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             )
 
             cursor.fast_executemany = True
@@ -238,6 +259,8 @@ BEGIN TRY
             property_country,
             property_city,
             property_neighbourhood,
+            TRY_CAST(latitude AS DECIMAL(9,6)) AS latitude,
+            TRY_CAST(longitude AS DECIMAL(9,6)) AS longitude,
             TRY_CAST(REPLACE(REPLACE(price, '$', ''), ',', '') AS DECIMAL(10,2)) AS price,
             TRY_CAST(number_of_reviews AS BIGINT) AS number_of_reviews,
             TRY_CAST(review_scores_rating AS DECIMAL(5,2)) AS review_scores_rating,
@@ -255,13 +278,15 @@ BEGIN TRY
             property_country = src.property_country,
             property_city = src.property_city,
             property_neighbourhood = src.property_neighbourhood,
+            latitude = src.latitude,
+            longitude = src.longitude,
             price = src.price,
             number_of_reviews = src.number_of_reviews,
             review_scores_rating = src.review_scores_rating,
             calculated_host_listings_count = src.calculated_host_listings_count
     WHEN NOT MATCHED BY TARGET THEN
-        INSERT (listing_id, host_id, host_name, host_city, host_country, property_country, property_city, property_neighbourhood, price, number_of_reviews, review_scores_rating, calculated_host_listings_count)
-        VALUES (src.listing_id, src.host_id, src.host_name, src.host_city, src.host_country, src.property_country, src.property_city, src.property_neighbourhood, src.price, src.number_of_reviews, src.review_scores_rating, src.calculated_host_listings_count)
+        INSERT (listing_id, host_id, host_name, host_city, host_country, property_country, property_city, property_neighbourhood, latitude, longitude, price, number_of_reviews, review_scores_rating, calculated_host_listings_count)
+        VALUES (src.listing_id, src.host_id, src.host_name, src.host_city, src.host_country, src.property_country, src.property_city, src.property_neighbourhood, src.latitude, src.longitude, src.price, src.number_of_reviews, src.review_scores_rating, src.calculated_host_listings_count)
     OUTPUT $action INTO @merge_summary;
 
     -- Always insert mapping rows for every staging row so raw IDs are preserved.
@@ -343,110 +368,28 @@ END CATCH
         cursor = conn.cursor()
 
         try:
-            df = pd.read_csv(gzip.open(file_path, 'rt', encoding='utf-8'), sep='|', engine='python')
-
-            # Convert 'date' column to datetime
-            df['date'] = pd.to_datetime(df['date'])
-
-            # Ensure dim_dates is populated for the date range in the current calendar file
-            min_date = df['date'].min().date()
-            max_date = df['date'].max().date()
-            self._ensure_dim_dates(conn, min_date, max_date)
-
-            # Convert 'available' to boolean (1/0)
-            df['available'] = df['available'].map({'t': 1, 'f': 0})
-
-            # Clean and convert 'price' to numeric
-            df['price'] = pd.to_numeric(df['price'].replace({'\$': '', ',': ''}, regex=True), errors='coerce')
-
-            # Group by listing_id and week
-            # Define week start as Monday
-            # Calculate week_start_date (Monday of the week)
-            # Monday is weekday 0, Sunday is 6
-            df['week_start_date'] = df['date'] - pd.to_timedelta(df['date'].dt.weekday, unit='D')
-
-            weekly_agg = df.groupby(['listing_id', 'week_start_date']).agg(
-                avg_price_per_week=('price', 'mean'),
-                available_days_per_week=('available', 'sum')
-            ).reset_index()
-
-            weekly_agg['avg_price_per_week'] = weekly_agg['avg_price_per_week'].replace({pd.NA: None, np.nan: None})
-
-            # Calculate week_end_date
-            weekly_agg['week_end_date'] = weekly_agg['week_start_date'] + pd.to_timedelta(6, unit='D')
-
-            # Insert into fact_calendar
-            insert_sql = """
-                INSERT INTO fact_calendar (listing_id, week_start_date, week_end_date, avg_price_per_week, available_days_per_week)
-                VALUES (?, ?, ?, ?, ?)
-            """
-            
-            rows_to_insert = weekly_agg[['listing_id', 'week_start_date', 'week_end_date', 'avg_price_per_week', 'available_days_per_week']].values.tolist()
-
-            cursor.fast_executemany = True
-            batch_size = 500
-            inserted_count = 0
-            for i in range(0, len(rows_to_insert), batch_size):
-                batch = rows_to_insert[i:i+batch_size]
-                try:
-                    cursor.executemany(insert_sql, batch)
-                    conn.commit()
-                    inserted_count += len(batch)
-                except Exception as be:
-                    logger.warning(f"   ⚠️ Batch insert failed for calendar data: {be}")
-                    conn.rollback()
-                    # Attempt single row inserts for error logging
-                    for single_row in batch:
-                        try:
-                            cursor.execute(insert_sql, single_row)
-                            conn.commit()
-                            inserted_count += 1
-                        except Exception as se:
-                            logger.error(f"   ❌ Failed to insert single calendar row: {single_row}. Error: {se}")
-                            conn.rollback()
-
-            logger.info(f"   ✅ Loaded: {os.path.basename(file_path)} - Calendar records added: {inserted_count:,}")
-
-        except Exception as e:
-            logger.error(f"   ❌ Error processing calendar file {file_path}: {e}")
-            self.consecutive_errors += 1
-        finally:
-            # clean up original temp file; keep the stable copy in logs for debugging/audit
-            if temp_file_path and os.path.exists(temp_file_path):
-                try:
-                    os.remove(temp_file_path)
-                except Exception:
-                    pass
-
-    def _load_reviews_data(self, conn, file_path: str):
-        temp_file_path = None
-        cursor = conn.cursor()
-        try:
-            try:
-                temp_file = tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.csv')
+            # Create a temporary file to store the uncompressed calendar data
+            with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.csv') as temp_file:
                 temp_file_path = temp_file.name
                 with gzip.open(file_path, 'rb') as f_in:
-                    for line in f_in:
-                        temp_file.write(line)
-                temp_file.close()
-            except (gzip.BadGzipFile, EOFError) as e:
-                logger.error(f"   ❌ Error reading gzip file {file_path}: {e}")
-                if 'temp_file' in locals() and temp_file:
-                    temp_file.close()
-                # Skip this file
-                return
-
-            with open('sql/data/05_load_reviews.sql', 'r', encoding='utf-8-sig') as f:
+                    shutil.copyfileobj(f_in, temp_file)
+            
+            # Read the SQL script
+            with open('sql/data/04_load_calendar.sql', 'r', encoding='utf-8-sig') as f:
                 sql_script = f.read()
-            sql_script = 'SET NOCOUNT ON;\n' + sql_script.replace('{{REVIEWS_FILE_PATH}}', temp_file_path.replace('\\', '\\\\'))
 
+            # Replace the placeholder with the actual file path
+            sql_script = sql_script.replace('{{CALENDAR_FILE_PATH}}', temp_file_path.replace('\\', '\\\\'))
+
+            # Execute the SQL script
             cursor.execute(sql_script)
 
+            # Fetch the inserted row count
             inserted_count = 0
             try:
                 while True:
                     desc = cursor.description
-                    if desc and len(desc) == 1 and desc[0][0].lower() == 'inserted_review_rows':
+                    if desc and len(desc) == 1 and desc[0][0].lower() == 'inserted_calendar_rows':
                         row = cursor.fetchone()
                         if row:
                             inserted_count = int(row[0])
@@ -454,17 +397,87 @@ END CATCH
                     if not cursor.nextset():
                         break
             except Exception as e:
-                logger.warning(f"   ⚠️ Could not retrieve exact insert count: {e}")
+                logger.warning(f"   ⚠️ Could not retrieve exact insert count for calendar: {e}")
 
             conn.commit()
-            logger.info(f"   ✅ Loaded: {os.path.basename(file_path)} - Reviews added: {inserted_count:,}, Reviews updated: 0")
+            logger.info(f"   ✅ Loaded: {os.path.basename(file_path)} - Calendar records added: {inserted_count:,}")
 
+        except Exception as e:
+            logger.error(f"   ❌ Error processing calendar file {file_path}: {e}")
+            self.consecutive_errors += 1
+            if conn:
+                conn.rollback()
+        finally:
+            if cursor:
+                cursor.close()
+            # Clean up the temporary file
+            if temp_file_path and os.path.exists(temp_file_path):
+                try:
+                    os.remove(temp_file_path)
+                except Exception as e:
+                    logger.warning(f"   ⚠️ Could not remove temp file {temp_file_path}: {e}")
+
+    def _load_reviews_data(self, conn, file_path: str):
+        logger.info(f"   ↳ Loading reviews file: {os.path.basename(file_path)}")
+        temp_file_path: Optional[str] = None
+        
+        try:
+            df = pd.read_csv(gzip.open(file_path, 'rt', encoding='utf-8'), sep='|', engine='python')
+
+            original_rows = len(df)
+            if original_rows > 200000:
+                capped_rows = int(original_rows * 0.8)
+                df = df.sample(n=capped_rows, random_state=42)
+                logger.info(f"   ⚠️ Capped reviews from {original_rows:,} to {len(df):,} (80%) for file: {os.path.basename(file_path)}")
+
+            df['listing_id'] = pd.to_numeric(df['listing_id'], errors='coerce').astype('Int64')
+            df['date'] = pd.to_datetime(df['date'], errors='coerce').dt.strftime('%Y-%m-%d')
+            df['reviewer_name'] = df['reviewer_name'].str.slice(0, 255)
+            df['comments'] = df['comments'].str.slice(0, 4000)
+
+            temp_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv', encoding='utf-8', newline='')
+            temp_file_path = temp_file.name
+            df.to_csv(temp_file_path, sep='|', index=False, header=False, na_rep='')
+            temp_file.close()
+
+            with open('sql/data/05_load_reviews.sql', 'r', encoding='utf-8-sig') as f:
+                sql_script = f.read()
+            sql_script = 'SET NOCOUNT ON;\n' + sql_script.replace('{{REVIEWS_FILE_PATH}}', temp_file_path.replace('\\', '\\\\'))
+
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    cursor = conn.cursor()
+                    cursor.execute(sql_script)
+                    inserted_count = 0
+                    while True:
+                        desc = cursor.description
+                        if desc and len(desc) == 1 and desc[0][0].lower() == 'inserted_review_rows':
+                            row = cursor.fetchone()
+                            if row:
+                                inserted_count = int(row[0])
+                            break
+                        if not cursor.nextset():
+                            break
+                    conn.commit()
+                    logger.info(f"   ✅ Loaded: {os.path.basename(file_path)} - New reviews added: {inserted_count:,}")
+                    break  # Success, exit retry loop
+                except Exception as e:
+                    if self._is_connection_error(e) and attempt < max_retries - 1:
+                        logger.warning(f"   ⚠️ Connection error on attempt {attempt + 1} for {os.path.basename(file_path)}. Retrying...")
+                        conn = self._reconnect(conn)
+                    else:
+                        logger.warning(f"   ⚠️ Attempt {attempt + 1} failed for {os.path.basename(file_path)}: {e}")
+                        conn.rollback()
+                        if attempt + 1 == max_retries:
+                            logger.error(f"   ❌ All attempts failed for {os.path.basename(file_path)}.")
+                            raise
+                        else:
+                            logger.info(f"   Retrying...")
         except Exception as e:
             logger.error(f"   ❌ Error loading reviews: {e}")
             conn.rollback()
         finally:
-            if cursor:
-                cursor.close()
             if temp_file_path and os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
 

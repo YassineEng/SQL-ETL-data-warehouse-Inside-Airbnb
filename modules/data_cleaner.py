@@ -92,6 +92,7 @@ class AirbnbDataCleaner:
                 
                 # Create cleaned dataframe
                 df_clean = df[existing_cols].copy()
+                logger.info(f"   ✅ Kept columns: {list(df_clean.columns)}")
                 
                 # Enhanced location processing for listings
                 if file_type == 'listings':
@@ -168,7 +169,7 @@ class AirbnbDataCleaner:
                 'id', 'host_id', 'host_name', 'host_location',
                 
                 # Property location - ONLY reliable columns
-                'neighbourhood_cleansed',
+                'neighbourhood_cleansed', 'latitude', 'longitude',
                 
                 # Core metrics
                 'price', 'number_of_reviews', 'review_scores_rating',

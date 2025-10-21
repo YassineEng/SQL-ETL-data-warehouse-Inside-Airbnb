@@ -24,7 +24,7 @@ from utils.utility import validate_directory, create_timestamp
 
 def main():
     """Main ETL pipeline execution"""
-    setup_logging()
+    setup_logging(log_level="DEBUG")
     config = Config()
     
     

@@ -42,7 +42,8 @@ FROM #temp_calendar c
 INNER JOIN dim_listings l ON c.listing_id = l.listing_id
 GROUP BY 
     c.listing_id,
-    DATEADD(wk, DATEDIFF(wk, 0, CONVERT(DATE, c.date)), 0);
+    DATEADD(wk, DATEDIFF(wk, 0, CONVERT(DATE, c.date)), 0),
+    DATEADD(wk, DATEDIFF(wk, 0, CONVERT(DATE, c.date)), 6);
 
 SELECT COUNT(listing_id) AS inserted_calendar_rows FROM #inserted_calendar_ids;
 

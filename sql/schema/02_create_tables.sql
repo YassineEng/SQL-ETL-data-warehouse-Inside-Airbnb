@@ -11,6 +11,8 @@ CREATE TABLE dim_listings (
     property_country NVARCHAR(100),
     property_city NVARCHAR(255),
     property_neighbourhood NVARCHAR(255),
+    latitude DECIMAL(9,6),
+    longitude DECIMAL(9,6),
     price DECIMAL(10,2),
     number_of_reviews BIGINT,
     review_scores_rating DECIMAL(3,2),
@@ -45,6 +47,8 @@ CREATE TABLE dim_listings_staging (
     property_country NVARCHAR(MAX),
     property_city NVARCHAR(MAX),
     property_neighbourhood NVARCHAR(MAX),
+    latitude NVARCHAR(MAX),
+    longitude NVARCHAR(MAX),
     price NVARCHAR(MAX),
     number_of_reviews NVARCHAR(MAX),
     review_scores_rating NVARCHAR(MAX),
@@ -66,7 +70,7 @@ CREATE TABLE fact_reviews_temp (
     date DATE,
     reviewer_id BIGINT,
     reviewer_name NVARCHAR(255),
-    comments TEXT
+    comments NVARCHAR(MAX)
 );
 
 -- Dimension Table: Hosts
