@@ -13,7 +13,9 @@ modules/__init__.py
 modules/data_analyzer.py
 modules/data_cleaner.py
 modules/data_loader.py
+modules/data_validator.py
 modules/spark_manager.py
+tests/test_schema_creation.py
 utils/__init__.py
 utils/logger.py
 utils/utility.py

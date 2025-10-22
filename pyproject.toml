@@ -10,6 +10,7 @@ dependencies = [
     "pyarrow",
     "python-dateutil",
     "pyodbc",
+    "langdetect", # Added langdetect
 ]
 
 [build-system]

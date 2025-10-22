@@ -9,4 +9,5 @@ Requires-Dist: numpy
 Requires-Dist: pyarrow
 Requires-Dist: python-dateutil
 Requires-Dist: pyodbc
+Requires-Dist: langdetect
 Dynamic: license-file

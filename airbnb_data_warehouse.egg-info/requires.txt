@@ -4,3 +4,4 @@ numpy
 pyarrow
 python-dateutil
 pyodbc
+langdetect
